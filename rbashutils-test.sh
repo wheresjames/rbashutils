@@ -7,6 +7,12 @@ if [[ ! -d "$ROOTDIR" ]]; then ROOTDIR="$PWD"; fi
 . "${ROOTDIR}/rbashutils.sh"
 
 
+doCleanup()
+{
+    echo "~ exit $@ ~"
+}
+onExit doCleanup
+
 #----------------------------------------------------------
 echo
 showVars '-' BASH_SOURCE ROOTDIR
@@ -21,7 +27,6 @@ showInfo "showInfo(): This is info"
 showWarning "showWarning(): This is a warning"
 showFail "showFail(): This is a failure"
 showError "showError(): This is an error"
-
 
 #----------------------------------------------------------
 setCmd "build-package-upload"
@@ -96,6 +101,7 @@ showInfo "/tmp last modified : $LASTMOD"
 assertVersion "1.2.3" "1.2.4" "<"
 assertVersion "1.2.4" "1.2.3" ">"
 assertVersion "1.2.3" "1.2.3" "="
+assertVersion "1.2.3" "1.2.3.0" "="
 assertVersion "1.2.3" "1.2.3" "<="
 assertVersion "1.2.3" "1.2.3" "<="
 assertVersion "1.2.4" "1.2.3" ">="
@@ -120,3 +126,5 @@ echo
 waitUntil "shuf -i 1-100000 -n 1" "56" "Waiting for a 56 to appear in a random string of numbers..." 10 1
 showStatus "Saw a 56 in the random string of numbers" \
            "Didn't see a 56 in the random string of numbers after 10 seconds of waiting"
+
+doExit 0

@@ -12,6 +12,7 @@ if [[ ! -z "${BASH_SOURCE[0]}" ]]; then
 fi
 if [[ ! -d "$RBASHUTIL_ROOTDIR" ]]; then RBASHUTIL_ROOTDIR="$PWD"; fi
 RBASHUTIL_TOOLPATH="${RBASHUTIL_ROOTDIR}/.tools"
+RBASHUTIL_ONEXIT=
 
 # Pads string to the specified number of spaces
 # @param [in] string - String to pad
@@ -141,10 +142,21 @@ showError()
     fi
 }
 
+# Sets the function to call on exit
+# @param [in] function - Function to call on exit
+onExit()
+{
+    RBASHUTIL_ONEXIT=$1
+}
+
 # Exits script
 # @param [in] int - Exit code
 doExit()
 {
+    if [ ! -z $RBASHUTIL_ONEXIT ]; then
+        $RBASHUTIL_ONEXIT $@
+    fi
+
     echo
     exit $1
 }
@@ -405,6 +417,39 @@ doIfNot()
         exitWithError $4
     fi
 }
+
+# Executes a second command if the first command fails
+# @param [in]       - First command to execute
+# @param [in]       - Second command to execute if the first fails
+# @param [in,opt]   - Message to display on error
+doIfFail()
+{
+    $1
+    if [[ 0 -ne $? ]]; then
+        if [ ! -z $3 ]; then
+            echo "$3"
+        fi
+        $2
+    fi
+}
+
+
+# Executes a second command if the first command fails and exits
+# @param [in]       - First command to execute
+# @param [in]       - Second command to execute if the first fails
+# @param [in,opt]   - Message to display on error
+doIfFailAndExit()
+{
+    $1
+    if [[ 0 -ne $? ]]; then
+        if [ ! -z $3 ]; then
+            echo "$3"
+        fi
+        $2
+        exitWithError $3
+    fi
+}
+
 
 # Waits while a sub string appears in a commands output
 # @param [in] string - Command to execute
