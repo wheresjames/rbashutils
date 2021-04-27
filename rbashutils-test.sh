@@ -113,6 +113,20 @@ assertVersion "" "1.2.3" "<"
 assertVersion "" "" "="
 
 #----------------------------------------------------------
+
+echo
+
+showInfo "Files in /tmp : $(countFiles /tmp)"
+
+iterFiles()
+{
+    echo "iterFiles(): $2 $1"
+    sleep .001
+}
+iterateFiles "iterFiles" "/tmp"
+
+
+#----------------------------------------------------------
 # shuf -i 1-100000 -n 1
 
 echo

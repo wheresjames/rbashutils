@@ -14,7 +14,7 @@ if [[ ! -d "$RBASHUTIL_ROOTDIR" ]]; then RBASHUTIL_ROOTDIR="$PWD"; fi
 RBASHUTIL_TOOLPATH="${RBASHUTIL_ROOTDIR}/.tools"
 RBASHUTIL_ONEXIT=
 
-# Pads string to the specified number of spaces
+# Pads string to the specified number of characters
 # @param [in] string - String to pad
 # @param [in] int    - Length to pad string
 # @param [in] char   - Padding character
@@ -26,6 +26,22 @@ padStr()
     if [[ -z $PD ]]; then PD=' '; fi
     while ((${#S1} < $LN)); do
         S1+="$PD"
+    done
+    echo "$S1"
+}
+
+# Left pads string to the specified number of characters
+# @param [in] string - String to pad
+# @param [in] int    - Length to pad string
+# @param [in] char   - Padding character
+padStrLeft()
+{
+    local S1="$1"
+    local LN=$2
+    local PD="$3"
+    if [[ -z $PD ]]; then PD=' '; fi
+    while ((${#S1} < $LN)); do
+        S1="${PD}${S1}"
     done
     echo "$S1"
 }
@@ -804,4 +820,96 @@ assertVersion()
     if ! compareVersion "$1" "$2" "$3" "show"; then
         exitWithError "'$1' $3 '$2'"
     fi
+}
+
+# Recursively counts the files in the specified directory
+# @param [in] string    - Directory containing files to count
+# @param [in] string    - Non-zero to count directories as well
+# @returns Number of files in specified directory
+countFiles()
+{
+    local DIR=$1
+    local CNTDIRS=$2
+    if [ ! -d "$DIR" ]; then
+        echo "0"
+        return 0
+    fi
+
+    local COUNT=0
+    local FILES=$DIR/*
+    for SRC in $FILES
+    do
+        # Empty
+        if [[ $SRC =~ "*" ]]; then
+            continue
+        fi
+
+        #Directory
+        if [[ -d "$SRC" ]]; then
+            MORE=$(countFiles "$SRC")
+            if [ ! -z "$CNTDIRS" ]; then
+                COUNT=$(($COUNT+$MORE+1))
+            else
+                COUNT=$(($COUNT+$MORE+1))
+            fi
+
+        # File
+        else
+            COUNT=$(($COUNT+1))
+        fi
+
+    done
+
+    echo "$COUNT"
+}
+
+# Iterate files in a given directory
+# @param [in] func   - Function to call for each file / directory
+# @param [in] string - Directory to iterate
+# @param [internal]  - Total number of files in directory
+# @param [internal]  - Current file count
+iterateFiles()
+{
+    local FN=$1
+    local DIR=$2
+    local TOT=$3
+    local CNT=$4
+
+    if [ ! -d "$DIR" ]; then
+        return -1
+    fi
+
+    if [ -z "$TOT" ]; then
+        TOT=$(countFiles "$DIR" YES)
+        CNT="RBASHUTILS_ITTRCOUNT_$(getPassword 8)"
+        declare -g $CNT=0
+    fi
+
+    local FILES=$DIR/*
+    for SRC in $FILES
+    do
+        # Empty
+        if [[ $SRC =~ "*" ]]; then
+            continue
+        fi
+
+        local PROG="[ -- ]"
+        declare -g $CNT=$((${!CNT}+1))
+        if [[ 0 -lt $TOT ]]; then
+            local PERCENT=$((${!CNT} * 100 / $TOT))
+            if [[ 0 -gt $PERCENT ]]; then PERCENT=0;
+            elif [[ 100 -lt $PERCENT ]]; then PERCENT=100; fi
+            PROG="[$(padStrLeft "$PERCENT" 3)%]"
+        fi
+
+        # Directory
+        if [[ -d "$SRC" ]]; then
+            $FN "$SRC" "$PROG"
+            iterateFiles $FN "$SRC" $TOT $CNT
+
+        # Files
+        else
+            $FN "$SRC" "$PROG"
+        fi
+    done
 }

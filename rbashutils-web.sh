@@ -45,8 +45,10 @@ downloadTool()
     local TOOLURL=$2
     local TOOLDNL=$3
 
-    if [ -f $TOOLDNL ]; then
-        showInfo "Tool exists: $TOOLDNL"
+    local TOOLEXEC="${RBASHUTIL_TOOLPATH}/${TOOLNAME}"
+
+    if [ -f $TOOLEXEC ]; then
+        echo "$TOOLEXEC"
         return 0
     fi
 
@@ -57,13 +59,14 @@ downloadTool()
     fi
 
     # Download the tool if we don't have it
-    echo "Downloading $TOOLNAME..."
-    echo
-    curl -L $TOOLURL -o $TOOLDNL
+    curl -L $TOOLURL -o $TOOLEXEC
     exitOnError "CURL failed to download $TOOLNAME"
-    if [ ! -f $TOOLDNL ]; then
+    if [ ! -f $TOOLEXEC ]; then
         exitWithError "Failed to download $TOOLNAME"
     fi
+
+    echo "$TOOLEXEC"
+    return 0
 }
 
 # @param [in] string - Tool file name
@@ -129,6 +132,7 @@ downloadToolCompressed()
     rm -Rf "$TMPZIPPATH"
 
     echo "$TOOLEXEC"
+    return 0
 }
 
 # Download compression tools
@@ -137,58 +141,62 @@ downloadToolCompressed()
 initCompress()
 {
     JAVAEXEC=$(which java)
-    if [ -z "$JAVAEXEC" ] || [ ! -f "$JAVAEXEC" ]; then
-        exitOnError "Java not installed"
+    if [[ -z "$JAVAEXEC" ]] || [[ ! -f "$JAVAEXEC" ]]; then
+        exitWithError "Java not installed"
     fi
 
     # Closure compiler (old)
-    # downloadToolCompressed "cc.jar" "closure-compiler" "https://dl.google.com/closure-compiler/compiler-latest.zip"
-    # CCEXEC=$TOOLEXEC
+    # CCEXEC=$(downloadToolCompressed "cc.jar" "closure-compiler" "https://dl.google.com/closure-compiler/compiler-latest.zip")
+    # if [[ -z "$CCEXEC" ]] || [[ ! -f "$CCEXEC" ]]; then
+    #     exitWithError "Failed to install closure compiler"
+    # fi
 
     # Closure compiler
-    downloadTool "cc.jar" "https://repo1.maven.org/maven2/com/google/javascript/closure-compiler/v20201102/closure-compiler-v20201102.jar"
-    CCEXEC=$TOOLDNL
+    CCEXEC=$(downloadTool "cc.jar" "https://repo1.maven.org/maven2/com/google/javascript/closure-compiler/v20201102/closure-compiler-v20201102.jar")
+    if [[ -z "$CCEXEC" ]] || [[ ! -f "$CCEXEC" ]]; then
+        exitWithError "Failed to install closure compiler"
+    fi
 
     # HTML Minifier
     MINEXEC=$(which html-minifier)
-    if [ -z "$MINEXEC" ] || [ ! -f "$MINEXEC" ]; then
+    if [[ -z "$MINEXEC" ]] || [[ ! -f "$MINEXEC" ]]; then
         npm install html-minifier -g
         exitOnError "Failed to install html-minifier"
     fi
-    MINEXEC=$(which html-minifier)
-    if [ -z "$MINEXEC" ] || [ ! -f "$MINEXEC" ]; then
-        exitOnError "Failed to install html-minifier"
+
+    YUIEXEC=$(downloadTool "yui.jar" "https://github.com/yui/yuicompressor/releases/download/v2.4.8/yuicompressor-2.4.8.jar")
+    if [[ -z "$YUIEXEC" ]] || [[ ! -f "$YUIEXEC" ]]; then
+        exitWithError "Failed to install yuicompressor"
     fi
 
-    downloadTool "yui.jar" "https://github.com/yui/yuicompressor/releases/download/v2.4.8/yuicompressor-2.4.8.jar"
-    YUIEXEC=$TOOLDNL
-    if [ -z "$TOOLDNL" ] || [ ! -f "$TOOLDNL" ]; then
-        exitOnError "Failed to install html-minifier"
-    fi
-
-    showVars JAVAEXEC CCEXEC MINEXEC YUIEXEC
+    showVars - JAVAEXEC CCEXEC MINEXEC YUIEXEC
 }
+
 
 # Compresses a web site
 # @param [in] string - Input directory
 # @param [in] string - Output directory
+# @param [internal]  - Total number of files
+# @param [internal]  - Current file count
 compressWeb()
 {
     local IND=$1
     local OUTD=$2
+    local TOT=$3
+    local CNT=$4
 
-    showInfo "- Compressing : $IND"
+    # showInfo "- Compressing : $IND"
 
     if [[ $IND =~ ".." ]]; then
-        exitOnError "Invalid source directory : $IND"
+        exitWithError "Invalid source directory : $IND"
     fi
 
     if [ ! -d "$IND" ]; then
-        exitOnError "Directory doesn't exist : $IND"
+        exitWithError "Directory doesn't exist : $IND"
     fi
 
     if [[ $OUTD =~ ".." ]]; then
-        exitOnError "Invalid destination directory : $OUTD"
+        exitWithError "Invalid destination directory : $OUTD"
     fi
 
     if [ ! -d "$OUTD" ]; then
@@ -196,27 +204,42 @@ compressWeb()
         exitOnError "Failed to create directory : $OUTD"
     fi
 
+    if [ -z "$TOT" ]; then
+        TOT=$(countFiles "$IND" YES)
+        CNT="RBASHUTILS_COMPRESSWEB_$(getPassword 8)"
+        declare -g $CNT=0
+    fi
+
     local FILES=$IND/*
 
     for SRC in $FILES
     do
+        # Empty
+        if [[ $SRC =~ "*" ]]; then
+            echo "Skipping Empty directory : $SRC"
+            continue
+        fi
 
         local FNAME=`basename $SRC`
         local TGT=$OUTD/$FNAME
 
+        local PROG="[ -- ]"
+        declare -g $CNT=$((${!CNT}+1))
+        if [[ 0 -lt $TOT ]]; then
+            local PERCENT=$((${!CNT} * 100 / $TOT))
+            if [[ 0 -gt $PERCENT ]]; then PERCENT=0;
+            elif [[ 100 -lt $PERCENT ]]; then PERCENT=100; fi
+            PROG="[$(padStrLeft "$PERCENT" 3)%]"
+        fi
+
         if [ -d $SRC ]; then
 
-            compressWeb $SRC $TGT
-
-        # Is the directory empty?
-        elif [[ $SRC =~ "*" ]]; then
-
-            echo "Empty directory : $SRC -> $TGT"
+            compressWeb $SRC $TGT $TOT $CNT
 
         # Is it already minimized?
         elif [[ $SRC =~ ".min." ]]; then
 
-            echo "Copy Minimized File : $SRC -> $TGT"
+            echo "$PROG Copy Minimized File : $SRC -> $TGT"
 
             cp "$SRC" "$TGT"
             exitOnError "(d) Failed to copy $SRC -> $TGT"
@@ -226,12 +249,12 @@ compressWeb()
 
             local EXT="${FNAME##*.}"
 
-            echo "$EXT : $SRC -> $TGT"
+            echo "$PROG $EXT : $SRC -> $TGT"
 
             case ${EXT,,} in
 
                 "js")
-                    $JAVA -jar $CCEXEC  --warning_level quiet --js_output_file "$TGT" --js "$SRC"
+                    $JAVAEXEC -jar $CCEXEC  --warning_level quiet --js_output_file "$TGT" --js "$SRC"
                     if [[ 0 -ne $? ]]; then
                         echo "!!! Failed to build $SRC"
                         cp "$SRC" "$TGT"
@@ -240,7 +263,7 @@ compressWeb()
                 ;;
 
                 "css")
-                    $JAVA -jar $YUIEXEC -o "$TGT" "$SRC"
+                    $JAVAEXEC -jar $YUIEXEC -o "$TGT" "$SRC"
                     if [[ 0 -ne $? ]]; then
                         echo "!!! Failed to build $SRC"
                         cp "$SRC" "$TGT"
