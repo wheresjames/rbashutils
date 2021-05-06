@@ -8,11 +8,30 @@ if [[ ! -z "${BASH_SOURCE[0]}" ]]; then
     RBASHUTIL_SCRIPTPATH=$(realpath ${BASH_SOURCE[0]})
     if [[ ! -z "$RBASHUTIL_SCRIPTPATH" ]]; then
         RBASHUTIL_ROOTDIR=$(dirname $RBASHUTIL_SCRIPTPATH)
+    else
+        RBASHUTIL_ROOTDIR=.
     fi
+else
+    RBASHUTIL_ROOTDIR=.
 fi
 if [[ ! -d "$RBASHUTIL_ROOTDIR" ]]; then RBASHUTIL_ROOTDIR="$PWD"; fi
 RBASHUTIL_TOOLPATH="${RBASHUTIL_ROOTDIR}/.tools"
 RBASHUTIL_ONEXIT=
+
+
+# Creates a build string based on the current timestamp
+# @returns Build string formated as "YY.MM.DD.hhmm"
+createBuildString()
+{
+    local T=(`bash -c "date +'%y %m %d %H %M'"`)
+
+    # Remove leading zeros
+    for i in ${!T[@]}; do
+        T[$i]=$((10#${T[$i]}))
+    done
+
+    echo "${T[0]}.${T[1]}.${T[2]}.$((100 * ${T[3]} + ${T[4]}))"
+}
 
 # Pads string to the specified number of characters
 # @param [in] string - String to pad
@@ -46,23 +65,51 @@ padStrLeft()
     echo "$S1"
 }
 
+# Limits string length to specified length
+# @param [in] string - String to limit
+# @param [in] int    - Length to limit string
+# @param [in] string - Ending string
+limitStr()
+{
+    local S1="$1"
+    local LN=$2
+    local END="$3"
+    if [[ -z "$END" ]]; then END='...'; fi
+
+    local LIM=$(($LN - ${#END}))
+    if [[ ${#S1} -gt $LIM ]]; then
+        S1="${S1:0:$LIM}${END}"
+    fi
+    echo "$S1"
+}
+
+
+
 # Put a border around a string
 # @param [in]    char   - Character to make the box from
 # @param [in...] string - String that goes in the box
 boxStr()
 {
-    if [[ 1 -lt ${#@} ]]; then
+    local BCHR='-'
+    local SCHR='|'
 
-        local CHR=$1
+    if [[ ${#1} -eq 1 ]]; then
+        BCHR=$1
+        SCHR=$1
         shift
-        local STR="${@}"
-        local BORDERLEN=$((${#STR}+4))
-        local BORDERSTR=$(padStr "$CHR" $BORDERLEN "$CHR")
-
-        echo "$BORDERSTR"
-        echo -e "$CHR ${STR} $CHR"
-        echo "$BORDERSTR"
+    elif [[ ${#1} -eq 2 ]]; then
+        BCHR=${1:0:1}
+        SCHR=${1:1:1}
+        shift
     fi
+
+    local STR="${@}"
+    local BORDERLEN=$((${#STR}+4))
+    local BORDERSTR=$(padStr "$BCHR" $BORDERLEN "$BCHR")
+
+    echo "$BORDERSTR"
+    echo -e "$SCHR ${STR} $SCHR"
+    echo "$BORDERSTR"
 }
 
 
@@ -71,8 +118,20 @@ boxStr()
 # @param [in...] string - Script variable(s)
 showVars()
 {
-    local BCHR=$1
-    shift
+    local BCHR='-'
+    local SCHR='|'
+    local MAXK=30
+    local MAXV=80
+
+    if [[ ${#1} -eq 1 ]]; then
+        BCHR=$1
+        SCHR=$1
+        shift
+    elif [[ ${#1} -eq 2 ]]; then
+        BCHR=${1:0:1}
+        SCHR=${1:1:1}
+        shift
+    fi
 
     local VARLEN=4
     local VALLEN=4
@@ -80,18 +139,19 @@ showVars()
     for var in "$@"; do
         local VAL=${!var}
         if [[ ${#VAL} -gt $VALLEN ]]; then VALLEN=${#VAL}; fi
+        if [[ $MAXV -lt $VALLEN ]]; then VALLEN=$MAXV; fi
         if [[ ${#var} -gt $VARLEN ]]; then VARLEN=${#var}; fi
+        if [[ $MAXK -lt $VARLEN ]]; then VARLEN=$MAXK; fi
     done
 
     local BORDERLEN=$(($VARLEN+$VALLEN+7))
-    # if [[ $BORDERLEN -gt 100 ]]; then BORDERLEN=100; fi
     local BORDERSTR=$(padStr "$BCHR" $BORDERLEN "$BCHR")
 
     echo "$BORDERSTR"
     for var in "$@"; do
-        local S1=$(padStr "$var" $VARLEN)
-        local S2=$(padStr "${!var}" $VALLEN)
-        echo "$BCHR $S1 : $S2 $BCHR"
+        local S1=$(padStr "$(limitStr "$var" $MAXK)" $VARLEN)
+        local S2=$(padStr "$(limitStr "${!var}" $MAXV)" $VALLEN)
+        echo "$SCHR $S1 : $S2 $SCHR"
     done
     echo "$BORDERSTR"
 }
@@ -110,6 +170,15 @@ showBanner()
         echo -e "[\e[1;36mINFO\e[1;0m] \e[1;36m${@}\e[1;0m"
         echo $BORDERSTR
         echo
+    fi
+}
+
+# Show low visibility information
+# @param [in...] string
+showNotice()
+{
+    if [[ 0 -lt ${#@} ]]; then
+        echo -e "[\e[1;36m\e[1;2mNOTE\e[1;0m] \e[1;36m\e[1;2m${@}\e[1;0m"
     fi
 }
 
@@ -305,7 +374,7 @@ delCmd()
 findInStr()
 {
     local FIND_LIST=$1
-    local FIND_EXISTS=$(echo $FIND_LIST | grep -o $2)
+    local FIND_EXISTS=$(echo "$FIND_LIST" | grep -o $2)
     if [[ ! -z $FIND_EXISTS ]]; then return 0; fi
     return -1
 }
@@ -367,15 +436,35 @@ isCommand()
     return 0
 }
 
+# Checks if the specified package is installed
+isAptPkgInstalled()
+{
+    if findIn "dpkg --get-selections" $1; then return 0; else return -1; fi
+}
+
 # Checks that the specified pacakge(s) is installed, installs if not
 # @param [in] string - List of packages
 # @notes Exits on failure
 aptInstall()
 {
-    if ! findIn "apt list --installed" $1; then
-        apt-get -y install $1
-        exitOnError "Unable to install $1"
+    local QUIET=
+    if [[ "-q" == "$1" ]]; then
+        QUIET="YES"
+        shift
     fi
+
+    for PKG in "$@";do
+        # if findIn "dpkg --get-selections" $PKG; then
+        if isAptPkgInstalled "$PKG"; then
+            if [ -z "$QUIET" ]; then
+                showNotice "[x] Already installed: $PKG"
+            fi
+        else
+            showInfo "Installing $PKG..."
+            apt-get -yq install $PKG
+            exitOnError "Failed to install $PKG"
+        fi
+    done
 }
 
 # Checks for the specified apt repository
@@ -412,7 +501,7 @@ doIf()
     findInStr "$($1 2>&1)" $2
     if [[ 0 -ne $? ]]; then return 0; fi
     $3
-    if [[ ! -z $4 ]]; then
+    if [[ ! -z "$4" ]]; then
         exitWithError $4
     fi
 }
@@ -429,7 +518,7 @@ doIfNot()
     findInStr "$($1 2>&1)" $2
     if [[ 0 -eq $? ]]; then return 0; fi
     $3
-    if [[ ! -z $4 ]]; then
+    if [[ ! -z "$4" ]]; then
         exitWithError $4
     fi
 }
@@ -440,9 +529,13 @@ doIfNot()
 # @param [in,opt]   - Message to display on error
 doIfFail()
 {
-    $1
-    if [[ 0 -ne $? ]]; then
-        if [ ! -z $3 ]; then
+    local E=$?
+    if [ ! -z "$1" ]; then
+        $1
+        E=$?
+    fi
+    if [[ 0 -ne $E ]]; then
+        if [ ! -z "$3" ]; then
             echo "$3"
         fi
         $2
@@ -456,11 +549,12 @@ doIfFail()
 # @param [in,opt]   - Message to display on error
 doIfFailAndExit()
 {
-    $1
-    if [[ 0 -ne $? ]]; then
-        if [ ! -z $3 ]; then
-            echo "$3"
-        fi
+    local E=$?
+    if [ ! -z "$1" ]; then
+        $1
+        E=$?
+    fi
+    if [[ 0 -ne $E ]]; then
         $2
         exitWithError $3
     fi
@@ -624,6 +718,29 @@ findFile()
     echo "$FINDFILE"
 }
 
+# Searches current and parent directories for the specified file
+# @param [in] string    - Directory to start in
+# @param [in] string    - File name to search for
+# @returns The first path containing the file or empty string
+findParentWithFile()
+{
+    local DIR=$1
+    local FILE=$2
+
+    # Find project folder
+    local SEARCH="$DIR"
+    while [[ ! -f "${SEARCH}/${FILE}" ]] && [[ 1 -lt ${#SEARCH} ]]; do
+        SEARCH=$(dirname $SEARCH)
+    done
+
+    if [[ ! -f "${SEARCH}/${FILE}" ]]; then
+        SEARCH=
+    fi
+
+    echo "${SEARCH}"
+}
+
+
 # Creates a random password
 # @param [in] int    - Password length
 # @param [in] string - Password name
@@ -661,7 +778,9 @@ getPassword()
         fi
 
         PWDFILE="${PWDPATH}/$PWDNAME.pwd"
-        if [[ -f $PWDFILE ]]; then
+        if [[ ! -z $NEWPASSWORD ]]; then
+            rm "$PWDFILE"
+        elif [[ -f $PWDFILE ]]; then
             PASSWORD=$(<${PWDFILE})
         fi
     fi

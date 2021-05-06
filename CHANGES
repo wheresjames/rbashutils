@@ -1,0 +1,18 @@
+
+    [+] Added
+    [-] Removed
+    [*] Changed
+    [!] Fixed
+    [?] Notes
+
+# v0.1.2
+
+    [+] createBuildString
+    [+] limitStr
+    [+] findParentWithFile
+    [+] showVars limits length
+    [+] rbashutils-test.sh takes test parameters
+    [+] createLetsencryptCert adds cron job
+    [+] getPassword now has change password option
+    [+] boxStr accepts separate top/bottom and side characters
+    [!] Pipe bug in doIf, doIfNot, doIfFail, doIfFailAndExit

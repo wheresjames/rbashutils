@@ -169,7 +169,7 @@ initCompress()
         exitWithError "Failed to install yuicompressor"
     fi
 
-    showVars - JAVAEXEC CCEXEC MINEXEC YUIEXEC
+    showVars JAVAEXEC CCEXEC MINEXEC YUIEXEC
 }
 
 
@@ -239,7 +239,7 @@ compressWeb()
         # Is it already minimized?
         elif [[ $SRC =~ ".min." ]]; then
 
-            echo "$PROG Copy Minimized File : $SRC -> $TGT"
+            echo "$PROG .min. : $SRC -> $TGT"
 
             cp "$SRC" "$TGT"
             exitOnError "(d) Failed to copy $SRC -> $TGT"
@@ -249,7 +249,7 @@ compressWeb()
 
             local EXT="${FNAME##*.}"
 
-            echo "$PROG $EXT : $SRC -> $TGT"
+            echo "$PROG $(padStr $EXT 5) : $SRC -> $TGT"
 
             case ${EXT,,} in
 
@@ -401,9 +401,8 @@ createLetsencryptCert()
     local CACHEDIR="/ssl/cache/live"
     local CERTDIR="$LETSDIR/${DOMAINNAME}"
 
-    aptInstall "software-properties-common"
-    aptInstall "letsencrypt"
-    aptInstall "certbot"
+    # Install dependencies
+    aptInstall -q software-properties-common letsencrypt certbot
 
     # Add renew job to cron
     if ! findIn "crontab -l" "certbot"; then
@@ -477,6 +476,13 @@ createLetsencryptCert()
         $RESTARTAPACHE
         $RESTARTNGINX
     fi
+
+    if ! findIn "crontab -l" "certbot"; then
+        showInfo "Adding SSL renewal cron job"
+        local CERTRENEW="0 12 * * * /usr/bin/certbot renew --quiet"
+        (crontab -l; echo "$CERTRENEW" ) | crontab -
+    fi
+
 }
 
 # Install UFW firewall
