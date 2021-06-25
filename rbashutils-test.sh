@@ -22,8 +22,13 @@ onExit doCleanup
 
 doTest()
 {
-    if isCmd "$1" || [ -z $(getCmds) ]; then return 0; else return -1; fi
+    if ! isCmd "$1" && [ ! -z $(getCmds) ]; then
+        return -1
+    fi
+    printf "\n--- $1 ---\n"
+    return 0
 }
+
 
 #----------------------------------------------------------
 echo
@@ -34,10 +39,8 @@ echo ":: $(createBuildString) ::"
 showVars COMMANDS BASH_SOURCE SCRIPTFILE SCRIPTPATH
 
 
-
 #----------------------------------------------------------
 if doTest "1";  then
-    printf "\n--- 1 ---\n"
 
     showVars \# BASH_SOURCE
     showVars !\* BASH_SOURCE
@@ -50,7 +53,6 @@ fi
 
 #----------------------------------------------------------
 if doTest "2";  then
-    printf "\n--- 2 ---\n"
 
     showInfo "showInfo(): This is info"
     showWarning "showWarning(): This is a warning"
@@ -61,7 +63,6 @@ fi
 
 #----------------------------------------------------------
 if doTest "3";  then
-    printf "\n--- 3 ---\n"
 
     echo "padStr     : $(padStr Padded 27 \.)"
     echo "padStrLeft : $(padStrLeft Padded 27 \.)"
@@ -72,7 +73,6 @@ fi
 
 #----------------------------------------------------------
 if doTest "4";  then
-    printf "\n--- 4 ---\n"
 
     if ! findInStr "what a world" "world"; then
         exitWithError "world not found"
@@ -98,7 +98,6 @@ fi
 
 #----------------------------------------------------------
 if doTest "5";  then
-    printf "\n--- 5 ---\n"
 
     MYPASSWORD=$(getPassword 32)
     showInfo "Create password (A-Za-z0-9) : $MYPASSWORD"
@@ -110,7 +109,6 @@ fi
 
 #----------------------------------------------------------
 if doTest "6";  then
-    printf "\n--- 6 ---\n"
 
     if isOnline "https://www.google.com"; then
         showInfo "Google seems to be working today"
@@ -128,7 +126,6 @@ fi
 
 #----------------------------------------------------------
 if doTest "7";  then
-    printf "\n--- 7 ---\n"
 
     LASTMOD=$(lastModified "/tmp")
     showInfo "/tmp last modified : $LASTMOD"
@@ -138,7 +135,6 @@ fi
 #----------------------------------------------------------
 # Version comparison
 if doTest "8";  then
-    printf "\n--- 8 ---\n"
 
     assertVersion "1.2.3" "1.2.4" "<"
     assertVersion "1.2.4" "1.2.3" ">"
@@ -158,7 +154,6 @@ fi
 
 #----------------------------------------------------------
 if doTest "9";  then
-    printf "\n--- 9 ---\n"
 
     showInfo "Files in /tmp : $(countFiles /tmp)"
 
@@ -174,7 +169,27 @@ fi
 #----------------------------------------------------------
 # shuf -i 1-100000 -n 1
 if doTest "10";  then
-    printf "\n--- 10 ---\n"
+
+    DOMAIN="www.google.com"
+
+    if ! isCertValid "$DOMAIN"; then
+        showFail "Cert is invalid for $DOMAIN"
+    else
+        showInfo "Cert is valid for $DOMAIN"
+    fi
+
+    echo "start, text: $(getCertTime "$DOMAIN" "start" "text")"
+    echo "end, text: $(getCertTime "$DOMAIN" "end" "text")"
+    echo "start/end, text: $(getCertTime "$DOMAIN" "start end" "text")"
+    echo "start, timestamp: $(getCertTime "$DOMAIN" "start" "timestamp")"
+    echo "end, timestamp: $(getCertTime "$DOMAIN" "end" "timestamp")"
+    echo "start/end, timestamp: $(getCertTime "$DOMAIN" "start end" "timestamp")"
+
+fi
+
+#----------------------------------------------------------
+# shuf -i 1-100000 -n 1
+if doTest "11";  then
 
     # CURTIME=`date`
     # showInfo "Current date string : $CURTIME"

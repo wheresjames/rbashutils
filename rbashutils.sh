@@ -373,8 +373,8 @@ delCmd()
 # @returns 0 if sub string is found
 findInStr()
 {
-    local FIND_LIST=$1
-    local FIND_EXISTS=$(echo "$FIND_LIST" | grep -o $2)
+    local FIND_LIST="$1"
+    local FIND_EXISTS=$(echo "$FIND_LIST" | grep -o "$2")
     if [[ ! -z $FIND_EXISTS ]]; then return 0; fi
     return -1
 }
@@ -1032,3 +1032,77 @@ iterateFiles()
         fi
     done
 }
+
+# Returns 0 if the cert is valid for the specified number of days
+# @param [in] string    - Domain name to check
+# @param [in] int       - Number of days (default is 1)
+isCertValid()
+{
+    local DOMAIN=$1
+    local DAYS=$2
+
+    if [[ -z "$DAYS" ]] || [[ 0 -eq $DAYS ]]; then
+        DAYS=1
+    fi
+    local SECS=$(($DAYS * 24 * 60 * 60))
+
+    CERTRAW=$(openssl s_client -connect ${DOMAIN}:443 -servername ${DOMAIN} 2>/dev/null </dev/null)
+    if [ -z "$CERTRAW" ]; then
+        return -1;
+    fi
+
+    CERTTXT=$(echo "${CERTRAW}" | openssl x509 -in /dev/stdin -noout -checkend $SECS)
+    if findInStr "$CERTTXT" "Certificate will not expire"; then
+        return 0;
+    fi
+
+    return -1;
+}
+
+
+# Returns issue / expire info from certificate
+# @param [in] string - Domain name
+# @param [in] option - Which time (can be both) [start, end]
+# @param [in] option - Format [text, timestamp]
+getCertTime()
+{
+    local DOMAIN=$1
+    local WHICH=$2
+    local FORMAT=$3
+    local RET=
+
+    local CERTRAW=$(openssl s_client -connect ${DOMAIN}:443 -servername ${DOMAIN} 2>/dev/null </dev/null)
+    if [ -z "$CERTRAW" ]; then
+        return -1;
+    fi
+
+    # Start time
+    if findInStr "$WHICH" "start"; then
+        local CERTTXT=$(echo "${CERTRAW}" | openssl x509 -in /dev/stdin -noout -startdate)
+        if findInStr "$CERTTXT" "notBefore="; then
+            if [[ "timestamp" == "$FORMAT" ]]; then
+                RET="$(date --date="${CERTTXT:10}" +"%s")"
+            else
+                RET="${CERTTXT:10}"
+            fi
+        fi
+    fi
+
+    # End time
+    if findInStr "$WHICH" "end"; then
+        local CERTTXT=$(echo "${CERTRAW}" | openssl x509 -in /dev/stdin -noout -enddate)
+        if findInStr "$CERTTXT" "notAfter="; then
+            if [ ! -z "$RET" ]; then
+                RET="$RET : "
+            fi
+            if [[ "timestamp" == "$FORMAT" ]]; then
+                RET="${RET}$(date --date="${CERTTXT:9}" +"%s")"
+            else
+                RET="${RET}${CERTTXT:9}"
+            fi
+        fi
+    fi
+
+    echo "${RET}"
+}
+
