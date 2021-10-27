@@ -45,7 +45,7 @@ downloadTool()
     local TOOLURL=$2
     local TOOLDNL=$3
 
-    local TOOLEXEC="${RBASHUTIL_TOOLPATH}/${TOOLNAME}"
+    local TOOLEXEC="${RBASHUTILS_TOOLPATH}/${TOOLNAME}"
 
     if [ -f $TOOLEXEC ]; then
         echo "$TOOLEXEC"
@@ -53,9 +53,9 @@ downloadTool()
     fi
 
     # Tool path
-    if [ ! -d "$RBASHUTIL_TOOLPATH" ]; then
-        mkdir -p "$RBASHUTIL_TOOLPATH"
-        exitOnError "Failed to create path : $RBASHUTIL_TOOLPATH"
+    if [ ! -d "$RBASHUTILS_TOOLPATH" ]; then
+        mkdir -p "$RBASHUTILS_TOOLPATH"
+        exitOnError "Failed to create path : $RBASHUTILS_TOOLPATH"
     fi
 
     # Download the tool if we don't have it
@@ -79,7 +79,7 @@ downloadToolCompressed()
     local TOOLGREP=$2
     local TOOLURL=$3
 
-    local TOOLEXEC="${RBASHUTIL_TOOLPATH}/${TOOLNAME}"
+    local TOOLEXEC="${RBASHUTILS_TOOLPATH}/${TOOLNAME}"
 
     # Already exists?
     if [ -f "${TOOLEXEC}" ]; then return 0; fi
@@ -87,7 +87,7 @@ downloadToolCompressed()
     local TOOLEXT="${TOOLURL##*.}"
 
     # Remove existing
-    local TMPZIP="${RBASHUTIL_TOOLPATH}/tmp.${TOOLEXT}"
+    local TMPZIP="${RBASHUTILS_TOOLPATH}/tmp.${TOOLEXT}"
     if [ -f "$TMPZIP" ]; then
         rm "$TMPZIP"
     fi
@@ -99,7 +99,7 @@ downloadToolCompressed()
     fi
 
     # Lose old path
-    local TMPZIPPATH="${RBASHUTIL_TOOLPATH}/tmp-${TOOLEXT}"
+    local TMPZIPPATH="${RBASHUTILS_TOOLPATH}/tmp-${TOOLEXT}"
     if [ -d "$TMPZIPPATH" ]; then
         rm -Rf "$TMPZIPPATH"
     fi
@@ -406,7 +406,7 @@ createLetsencryptCert()
 
     # Add renew job to cron
     if ! findIn "crontab -l" "certbot"; then
-        local CERTRENEW="0 12 * * * /usr/bin/certbot renew --quiet"
+        local CERTRENEW="0 2 * * * /usr/bin/certbot renew --quiet"
         (crontab -l; echo "$CERTRENEW" ) | crontab -
     fi
 

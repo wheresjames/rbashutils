@@ -3,20 +3,23 @@
 # We're here
 IS_RBASHUTILS="YES"
 
+# Where to keep secrets
+#RBASHUTILS_SECRETS
+
 # Root directory
 if [[ ! -z "${BASH_SOURCE[0]}" ]]; then
-    RBASHUTIL_SCRIPTPATH=$(realpath ${BASH_SOURCE[0]})
-    if [[ ! -z "$RBASHUTIL_SCRIPTPATH" ]]; then
-        RBASHUTIL_ROOTDIR=$(dirname $RBASHUTIL_SCRIPTPATH)
+    RBASHUTILS_SCRIPTPATH=$(realpath ${BASH_SOURCE[0]})
+    if [[ ! -z "$RBASHUTILS_SCRIPTPATH" ]]; then
+        RBASHUTILS_ROOTDIR=$(dirname $RBASHUTILS_SCRIPTPATH)
     else
-        RBASHUTIL_ROOTDIR=.
+        RBASHUTILS_ROOTDIR=.
     fi
 else
-    RBASHUTIL_ROOTDIR=.
+    RBASHUTILS_ROOTDIR=.
 fi
-if [[ ! -d "$RBASHUTIL_ROOTDIR" ]]; then RBASHUTIL_ROOTDIR="$PWD"; fi
-RBASHUTIL_TOOLPATH="${RBASHUTIL_ROOTDIR}/.tools"
-RBASHUTIL_ONEXIT=
+if [[ ! -d "$RBASHUTILS_ROOTDIR" ]]; then RBASHUTILS_ROOTDIR="$PWD"; fi
+RBASHUTILS_TOOLPATH="${RBASHUTILS_ROOTDIR}/.tools"
+RBASHUTILS_ONEXIT=
 
 
 # Creates a build string based on the current timestamp
@@ -231,15 +234,15 @@ showError()
 # @param [in] function - Function to call on exit
 onExit()
 {
-    RBASHUTIL_ONEXIT=$1
+    RBASHUTILS_ONEXIT=$1
 }
 
 # Exits script
 # @param [in] int - Exit code
 doExit()
 {
-    if [ ! -z $RBASHUTIL_ONEXIT ]; then
-        $RBASHUTIL_ONEXIT $@
+    if [ ! -z $RBASHUTILS_ONEXIT ]; then
+        $RBASHUTILS_ONEXIT $@
     fi
 
     echo
@@ -327,13 +330,13 @@ warnOnError()
 #   setCmd "build,package,upload"
 setCmd()
 {
-    RBASHUTIL_COMMANDLIST=$1
+    RBASHUTILS_COMMANDLIST=$1
 }
 
 # Returns the command list
 getCmds()
 {
-    echo "$RBASHUTIL_COMMANDLIST"
+    echo "$RBASHUTILS_COMMANDLIST"
 }
 
 # Checks the variable *$COMMANDLIST* for the specified command
@@ -348,11 +351,11 @@ getCmds()
 isCmd()
 {
     # - separator
-    local FOUND=$(echo "\-$RBASHUTIL_COMMANDLIST-" | grep -o "\-${1}-")
+    local FOUND=$(echo "\-$RBASHUTILS_COMMANDLIST-" | grep -o "\-${1}-")
     if [[ ! -z $FOUND ]]; then return 0; fi
 
     # , separator
-    local FOUND=$(echo ",$RBASHUTIL_COMMANDLIST," | grep -o ",${1},")
+    local FOUND=$(echo ",$RBASHUTILS_COMMANDLIST," | grep -o ",${1},")
     if [[ ! -z $FOUND ]]; then return 0; fi
     return -1
 }
@@ -363,7 +366,7 @@ isCmd()
 delCmd()
 {
     if isCmd $1; then
-        RBASHUTIL_COMMANDLIST=${RBASHUTIL_COMMANDLIST/${1}/}
+        RBASHUTILS_COMMANDLIST=${RBASHUTILS_COMMANDLIST/${1}/}
     fi
 }
 
@@ -678,7 +681,7 @@ setEnv()
     if ! findInStr "${FILETXT}" "export ${VAR}="; then
         printf "\nexport ${VAR}=${VAL}\n" >> "${FILE}"
     else
-        sed -i "s/export ${VAR}=.*/export ${VAR}=${VAL}/g" "${FILE}"
+        sed -i "s/export ${VAR//\//\\\/}=.*/export ${VAR//\//\\\/}=${VAL//\//\\\/}/g" "${FILE}"
     fi
 }
 
@@ -741,11 +744,33 @@ findParentWithFile()
     echo "${SEARCH}"
 }
 
+# @param [in] string    - Name of path
+# @param [in] string    - Optional path
+# @returns Path to secrets
+getSecretsPath()
+{
+    local PATHNAME=$1
+    local PWDPATH=$2
+
+    if [[ -z $PWDPATH ]]; then
+        PWDPATH="${RBASHUTILS_SECRETS}/${PATHNAME}"
+    fi
+
+    if [[ -z $PWDPATH ]]; then
+        PWDPATH="./secrets/${PATHNAME}"
+    fi
+
+    if [[ ! -d "$PWDPATH" ]]; then
+        mkdir -p "$PWDPATH"
+    fi
+
+    echo "$PWDPATH"
+}
 
 # Creates a random password
 # @param [in] int    - Password length
 # @param [in] string - Password name
-# @param [in] string - Password locations (default ./secrets)
+# @param [in] string - Password locations (default [$RBASHUTILS_SECRETS, ./secrets])
 # @param [in] string - Character set, default = "A-Za-z0-9"
 #
 # @example
@@ -760,7 +785,7 @@ getPassword()
 {
     local PWDLEN=$1
     local PWDNAME=$2
-    local PWDPATH=$3
+    local PWDPATH=$(getSecretsPath "passwords" $3)
     local CHARSET=$4
 
     if [[ -z $PWDLEN ]]; then return -1; fi
@@ -769,14 +794,6 @@ getPassword()
     local PASSWORD=
     local PWDFILE=
     if [[ ! -z $PWDNAME ]]; then
-
-        if [[ -z $PWDPATH ]]; then
-            PWDPATH="./secrets"
-        fi
-
-        if [[ ! -d "$PWDPATH" ]]; then
-            mkdir -p "$PWDPATH"
-        fi
 
         PWDFILE="${PWDPATH}/$PWDNAME.pwd"
         if [[ ! -z $NEWPASSWORD ]]; then
@@ -1107,3 +1124,29 @@ getCertTime()
     echo "${RET}"
 }
 
+# Removes a directory and all contents
+# @param [in] string - Directory path
+rmtree()
+{
+    local DIR=$1
+    if [[ ${#DIR} -lt 3 ]]; then
+        return
+    fi
+    if [[ -d $DIR ]]; then
+        rm -Rf $DIR
+    fi
+}
+
+# Creates directory, emptys directory if it already exists
+# @param [in] string - Directory path
+remkdir()
+{
+    local DIR=$1
+    if [[ ${#DIR} -lt 3 ]]; then
+        return
+    fi
+    if [[ -d $DIR ]]; then
+        rm -Rf $DIR
+    fi
+    mkdir -p $DIR
+}

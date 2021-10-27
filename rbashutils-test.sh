@@ -184,6 +184,7 @@ if doTest "10";  then
     echo "start, timestamp: $(getCertTime "$DOMAIN" "start" "timestamp")"
     echo "end, timestamp: $(getCertTime "$DOMAIN" "end" "timestamp")"
     echo "start/end, timestamp: $(getCertTime "$DOMAIN" "start end" "timestamp")"
+    echo "Expires in $((($(getCertTime "$DOMAIN" "end" "timestamp") - $(date -u +%s)) / 86400)) days"
 
 fi
 
