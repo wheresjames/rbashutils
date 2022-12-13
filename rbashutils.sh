@@ -377,7 +377,7 @@ delCmd()
 findInStr()
 {
     local FIND_LIST="$1"
-    local FIND_EXISTS=$(echo "$FIND_LIST" | grep -o "$2")
+    local FIND_EXISTS=$(echo "$FIND_LIST" | grep -E -o "$2")
     if [[ ! -z $FIND_EXISTS ]]; then return 0; fi
     return -1
 }
@@ -456,18 +456,24 @@ aptInstall()
         shift
     fi
 
+    # The space is neede for proper matching of the first item
+    local PKGINSTALLED=" $(dpkg --get-selections)"
+    local INSTALL=
     for PKG in "$@";do
-        # if findIn "dpkg --get-selections" $PKG; then
-        if isAptPkgInstalled "$PKG"; then
+        if findInStr "$PKGINSTALLED" "^$PKG[[:space:]]+install"; then
             if [ -z "$QUIET" ]; then
                 showNotice "[x] Already installed: $PKG"
             fi
         else
             showInfo "Installing $PKG..."
-            apt-get -yq install $PKG
-            exitOnError "Failed to install $PKG"
+            INSTALL="$INSTALL $PKG"
         fi
     done
+
+    if [ ! -z "$INSTALL" ]; then
+        apt-get -yq install $INSTALL
+        exitOnError "Failed to install $INSTALL"
+    fi
 }
 
 # Checks for the specified apt repository
@@ -677,11 +683,15 @@ setEnv()
     local VAL=$2
     local FILE=$3
 
-    FILETXT=$(cat ${FILE})
-    if ! findInStr "${FILETXT}" "export ${VAR}="; then
-        printf "\nexport ${VAR}=${VAL}\n" >> "${FILE}"
-    else
-        sed -i "s/export ${VAR//\//\\\/}=.*/export ${VAR//\//\\\/}=${VAL//\//\\\/}/g" "${FILE}"
+    declare $VAR=$VAL
+    export $VAR=$VAL
+    if [[ ! -z "$FILE" ]]; then
+        FILETXT=$(cat ${FILE})
+        if ! findInStr "${FILETXT}" "export ${VAR}="; then
+            printf "\nexport ${VAR}=${VAL}\n" >> "${FILE}"
+        else
+            sed -i "s/export ${VAR//\//\\\/}=.*/export ${VAR//\//\\\/}=${VAL//\//\\\/}/g" "${FILE}"
+        fi
     fi
 }
 
@@ -692,6 +702,56 @@ containsSpaces()
 {
 	if [[ "$1" != "${1/ /}" ]]; then return 0; fi
 	return 1
+}
+
+# Trims white space from the front and back of a string
+# @param [in] string    - String to trim
+# @returns Trimmed string
+trimWs() {
+    local var="$*"
+    var="${var#"${var%%[![:space:]]*}"}"
+    var="${var%"${var##*[![:space:]]}"}"
+    echo $var
+}
+
+# Adds lines to the file if missing
+# @param [in] string    - File to modify
+# @param [in] string    - Lines to add to the file
+addLinesToFile()
+{
+    local FILENAME=$1
+    local ADDLINES=$2
+
+    FILEDATA=$(cat $FILENAME)
+    while IFS= read -r L; do
+        L=$(trimWs $L)
+        if [[ ! -z "$L" ]]; then
+            if ! findInStr "$FILEDATA" "$L"; then
+                showInfo "[+] Adding \"$L\" to \"$FILENAME\""
+                echo -e "$L" >> "$FILENAME"
+            fi
+        fi
+    done < <(echo "$ADDLINES")
+}
+
+# Deletes lines from the file if found
+# @param [in] string    - File to modify
+# @param [in] string    - Lines to delete from the file
+delLinesFromFile()
+{
+    local FILENAME=$1
+    local DELLINES=$2
+
+    FILEDATA=$(cat "$FILENAME")
+    while IFS= read -r L; do
+        L=$(trimWs $L)
+        if [[ ! -z "$L" ]]; then
+            if findInStr "$FILEDATA" "$L"; then
+                showInfo "[-] Deleting \"$L\" from \"$FILENAME\""
+                sed -i "s/$L//g" "$FILENAME"
+            fi
+        fi
+    done < <(echo "$DELLINES")
 }
 
 # Finds the first file matching the specified template
@@ -752,7 +812,7 @@ getSecretsPath()
     local PATHNAME=$1
     local PWDPATH=$2
 
-    if [[ -z $PWDPATH ]]; then
+    if [[ -z $PWDPATH ]] && [[ ! -z $RBASHUTILS_SECRETS ]]; then
         PWDPATH="${RBASHUTILS_SECRETS}/${PATHNAME}"
     fi
 
@@ -772,6 +832,7 @@ getSecretsPath()
 # @param [in] string - Password name
 # @param [in] string - Password locations (default [$RBASHUTILS_SECRETS, ./secrets])
 # @param [in] string - Character set, default = "A-Za-z0-9"
+# @param [in] string - "NEW" = Make new password
 #
 # @example
 #
@@ -787,6 +848,7 @@ getPassword()
     local PWDNAME=$2
     local PWDPATH=$(getSecretsPath "passwords" $3)
     local CHARSET=$4
+    local NEWPASSWORD=$5
 
     if [[ -z $PWDLEN ]]; then return -1; fi
     if [[ -z $CHARSET ]]; then CHARSET="A-Za-z0-9"; fi

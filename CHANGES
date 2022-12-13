@@ -1,12 +1,16 @@
 
-    [+] Added
-    [-] Removed
-    [*] Changed
-    [!] Fixed
-    [?] Notes
+# v0.1.6
+    [+] Handle file names with spaces in web compressor
+    [-] Don't add cron job for cert update
+    [!] Check that file exists in setEnv
+    [+] Add / remove lines to files functions
+    [!] aptInstall doesn't match sub strings
+
+# v0.1.5
+    [*] Change RBASHUTIL_* to RBASHUTILS_*
+    [+] rmtree(), remkdir(), getSecretsPath()
 
 # v0.1.2
-
     [+] createBuildString
     [+] limitStr
     [+] findParentWithFile
@@ -16,3 +20,11 @@
     [+] getPassword now has change password option
     [+] boxStr accepts separate top/bottom and side characters
     [!] Pipe bug in doIf, doIfNot, doIfFail, doIfFailAndExit
+
+# v0.1.1
+    [+] Added
+    [-] Removed
+    [*] Changed
+    [!] Fixed
+    [?] Notes
+

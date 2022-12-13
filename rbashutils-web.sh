@@ -180,14 +180,14 @@ initCompress()
 # @param [internal]  - Current file count
 compressWeb()
 {
-    local IND=$1
-    local OUTD=$2
+    local IND="$1"
+    local OUTD="$2"
     local TOT=$3
     local CNT=$4
 
-    # showInfo "- Compressing : $IND"
+    showInfo "- Compressing : $IND"
 
-    if [[ $IND =~ ".." ]]; then
+    if [[ "$IND" =~ ".." ]]; then
         exitWithError "Invalid source directory : $IND"
     fi
 
@@ -195,12 +195,12 @@ compressWeb()
         exitWithError "Directory doesn't exist : $IND"
     fi
 
-    if [[ $OUTD =~ ".." ]]; then
+    if [[ "$OUTD" =~ ".." ]]; then
         exitWithError "Invalid destination directory : $OUTD"
     fi
 
     if [ ! -d "$OUTD" ]; then
-        mkdir -p $OUTD
+        mkdir -p "$OUTD"
         exitOnError "Failed to create directory : $OUTD"
     fi
 
@@ -210,18 +210,17 @@ compressWeb()
         declare -g $CNT=0
     fi
 
-    local FILES=$IND/*
-
-    for SRC in $FILES
+    # local FILES="$IND"/*  # <-- Doesn't handle spaces correctly
+    for SRC in "$IND"/*
     do
         # Empty
-        if [[ $SRC =~ "*" ]]; then
+        if [[ "$SRC" =~ "*" ]]; then
             echo "Skipping Empty directory : $SRC"
             continue
         fi
 
-        local FNAME=`basename $SRC`
-        local TGT=$OUTD/$FNAME
+        local FNAME=`basename "$SRC"`
+        local TGT="$OUTD/$FNAME"
 
         local PROG="[ -- ]"
         declare -g $CNT=$((${!CNT}+1))
@@ -232,12 +231,16 @@ compressWeb()
             PROG="[$(padStrLeft "$PERCENT" 3)%]"
         fi
 
-        if [ -d $SRC ]; then
+        # Sub directory
+        if [ -d "$SRC" ]; then
+            compressWeb "$SRC" "$TGT" $TOT $CNT
 
-            compressWeb $SRC $TGT $TOT $CNT
+        # Is it already up to date?
+        elif [ -f "$TGT" ] && [ "$SRC" -ot "$TGT" ]; then
+            echo "$PROG UP2DT : $SRC -> $TGT"
 
         # Is it already minimized?
-        elif [[ $SRC =~ ".min." ]]; then
+        elif [[ "$SRC" =~ ".min." ]]; then
 
             echo "$PROG .min. : $SRC -> $TGT"
 
@@ -249,9 +252,9 @@ compressWeb()
 
             local EXT="${FNAME##*.}"
 
-            echo "$PROG $(padStr $EXT 5) : $SRC -> $TGT"
+            echo "$PROG $(padStr "$EXT" 5) : $SRC -> $TGT"
 
-            case ${EXT,,} in
+            case "${EXT,,}" in
 
                 "js")
                     $JAVAEXEC -jar $CCEXEC  --warning_level quiet --js_output_file "$TGT" --js "$SRC"
@@ -378,6 +381,22 @@ createCertRequest()
     fi
 }
 
+# Adds cronjob to renew letsencrypt cert
+# @param [in] string - Webroot for acme challenge
+addCertbotRenewCronjob()
+{
+    local WEBROOT=$1
+
+    # Add renew job to cron
+    if ! findIn "crontab -l" "certbot"; then
+        if [[ -z $WEBROOT ]]; then
+            local CERTRENEW="0 2 * * * /usr/bin/certbot renew >> /var/log/certrenew.log 2>&1"
+        else
+            local CERTRENEW="0 2 * * * /usr/bin/certbot renew --webroot -w $WEBROOT >> /var/log/certrenew.log 2>&1"
+        fi
+        (crontab -l; echo "$CERTRENEW" ) | crontab -
+    fi
+}
 
 # Installs letsencrypt cert
 # @param [in] string - Domain name
@@ -403,12 +422,6 @@ createLetsencryptCert()
 
     # Install dependencies
     aptInstall -q software-properties-common letsencrypt certbot
-
-    # Add renew job to cron
-    if ! findIn "crontab -l" "certbot"; then
-        local CERTRENEW="0 2 * * * /usr/bin/certbot renew --quiet"
-        (crontab -l; echo "$CERTRENEW" ) | crontab -
-    fi
 
     # See if we have cached credentials
     if [[ ! -d "$CERTDIR" ]]; then
@@ -475,12 +488,6 @@ createLetsencryptCert()
 
         $RESTARTAPACHE
         $RESTARTNGINX
-    fi
-
-    if ! findIn "crontab -l" "certbot"; then
-        showInfo "Adding SSL renewal cron job"
-        local CERTRENEW="0 12 * * * /usr/bin/certbot renew --quiet"
-        (crontab -l; echo "$CERTRENEW" ) | crontab -
     fi
 
 }
