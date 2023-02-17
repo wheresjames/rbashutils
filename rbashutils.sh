@@ -265,6 +265,28 @@ exitOnError()
     exitWithError $@
 }
 
+# Exits with error string if specified variable is empty
+# @param [in] string    - Variable name
+# @param [in] string    - Error string to show if variable is empty
+assertNotEmpty()
+{
+    if [ -z "$1" ]; then
+        exitWithError "$2"
+    fi
+}
+
+# Exits with error string if specified variable is not equal to specified string
+# @param [in] string    - Variable name
+# @param [in] string    - Value to compare to
+# @param [in] string    - Error string to show if variable is not equal
+assertEq()
+{
+    if [ "$1" != "$2" ]; then
+        exitWithError "$3"
+    fi
+}
+
+
 # Show error if the last operation did not return 0
 # @param [in...] string
 showOnError()
@@ -465,7 +487,7 @@ aptInstall()
                 showNotice "[x] Already installed: $PKG"
             fi
         else
-            showInfo "Installing $PKG..."
+            showInfo "[ ] Installing $PKG..."
             INSTALL="$INSTALL $PKG"
         fi
     done
@@ -1211,4 +1233,183 @@ remkdir()
         rm -Rf $DIR
     fi
     mkdir -p $DIR
+}
+
+
+# strXXX
+# https://stackoverflow.com/questions/5031764/
+
+strPos() {
+  haystack=$1
+  needle=$2
+  x="${haystack%%"$needle"*}"
+  [[ "$x" = "$haystack" ]] && { echo -1; return 1; } || echo "${#x}"
+}
+
+strrPos() {
+  haystack=$1
+  needle=$2
+  x="${haystack%"$needle"*}"
+  [[ "$x" = "$haystack" ]] && { echo -1; return 1 ;} || echo "${#x}"
+}
+
+startsWith() {
+  haystack=$1
+  needle=$2
+  x="${haystack#"$needle"}"
+  [[ "$x" = "$haystack" ]] && return 1 || return 0
+}
+
+endsWith() {
+  haystack=$1
+  needle=$2
+  x="${haystack%"$needle"}"
+  [[ "$x" = "$haystack" ]] && return 1 || return 0
+}
+
+
+# Convert command line arguments into an escaped string
+# $@ = Arguments
+cmdLineToStr()
+{
+    local ARGS=
+    while [ ! -z "$1" ]; do
+
+            local k="${1}"
+            local e=$(strPos "$k" "=")
+            if [ "$e" -ge "0" ]; then
+                ARGS="${ARGS} ${k:0:$e} \"${k:(($e+1))}\""
+            else
+                if [ "$1" != "${1/ /-}" ] && [ -z ${QTC##*${1:0:1}*} ]; then
+                    ARGS="${ARGS} \"${1}\""
+                else
+                    ARGS="${ARGS} ${1}"
+                fi
+            fi
+
+        shift
+
+    done
+
+    echo "$ARGS"
+}
+
+
+# Break args into quoted chunks
+# @param [in] string    - Prefix to affix   - PARAMS_
+# @param [in] string    - Command line      - -a=b -c "a b c" --switch --sw2 "sw2 value"
+# @param [in] string    - Quote characters  - "\"'"
+# @param [in] string    - Escape chars      - "\\"
+# @param [in] string    - Break chars       - " "
+prefixCmdLine()
+{
+    # Prefix
+    local PRE=$1
+
+    # Arguments
+    local ARGS="$2 "
+
+    # Quote characters
+    local QTC="$3"
+    if [ -z "$QTC" ]; then QTC="\"'"; fi
+
+    # Escape characters
+    local ESC="$4"
+    if [ -z "$ESC" ]; then ESC="\\"; fi
+
+    # End characters
+    local BRK="$5"
+    if [ -z "$BRK" ]; then BRK=" "; fi
+
+    local INQT=
+    local ACC=
+    local REF=
+    local i=0
+    local n=0
+    for ((i=0; i<${#ARGS}; ++i)); do
+
+        local ch="${ARGS:i:1}"
+
+        # Escape character?
+        if [ -z "${ESC##*$ch*}" ]; then
+            ACC="${ACC}${ch}"
+
+        # Is it a quoted character
+        elif [ -z "${QTC##*$ch*}" ]; then
+            if [ -z "$INQT" ]; then
+                INQT="$ch"
+            elif [ "$INQT" == "$ch" ]; then
+                INQT=
+            fi
+
+        # Are we in a quote
+        elif [ ! -z "$INQT" ]; then
+            ACC="${ACC}${ch}"
+
+        # Break char?
+        elif [ -z "${BRK##*$ch*}" ]; then
+
+            if [ ! -z "$ACC" ]; then
+
+                local k=
+                local v=
+                local e=$(strPos "$ACC" "=")
+                if [ "$e" -ge "0" ]; then
+                    k=${ACC:0:$e}
+                    v=${ACC:(($e+1))}
+                else
+                    k="$ACC"
+                    v=
+                    ((n+=1))
+                fi
+
+                SW=0
+                if [ "${k:0:2}" == "--" ]; then
+                    SW=2
+                elif [ "${k:0:1}" == "-" ]; then
+                    SW=1
+                fi
+
+                # Clean up the key
+                _k="$k"
+                k="${k#${k%%[a-zA-z]*}}"
+                k="${k//-/_}"
+                k="${k//[!0-9!a-z!A-Z!\_]/}"
+
+                # Single switch
+                if [ "$SW" -eq "1" ]; then
+                    for ((ki=0; ki<${#k}; ++ki)); do
+                        declare -g "${PRE}${k:ki:1}"="ON"
+                        REF="${k:ki:1}"
+                    done
+
+                # Double switch
+                elif [ "$SW" -eq "2" ]; then
+                    if [ -z "$v" ]; then
+                        REF="$k"
+                    else
+                        declare -g "${PRE}${k}"="$v"
+                    fi
+
+                # Value
+                else
+                    v="$_k"
+                    if [ ! -z "$REF" ]; then
+                        declare -g "${PRE}${REF}"="$v"
+                    fi
+
+                fi
+
+                # Set global variable
+                # declare -g "${PRE}${k}"="$v"
+                ACC=
+            fi
+
+        else
+            ACC="${ACC}${ch}"
+
+        fi
+
+    done
+
 }

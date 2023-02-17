@@ -1,4 +1,8 @@
 
+# v0.1.7
+    [+] Command line processing
+    [+] Asserts for variables
+
 # v0.1.6
     [+] Handle file names with spaces in web compressor
     [-] Don't add cron job for cert update

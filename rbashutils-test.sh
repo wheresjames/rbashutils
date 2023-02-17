@@ -36,7 +36,7 @@ echo ":: $(createBuildString) ::"
 
 
 #----------------------------------------------------------
-showVars COMMANDS BASH_SOURCE SCRIPTFILE SCRIPTPATH
+showVars OSTYPE COMMANDS BASH_SOURCE SCRIPTFILE SCRIPTPATH
 
 
 #----------------------------------------------------------
@@ -201,6 +201,40 @@ if doTest "11";  then
     waitUntil "shuf -i 1-100000 -n 1" "5" "Waiting for a 5 to appear in a random string of numbers..." 10 1
     showStatus "Saw a 5 in the random string of numbers" \
             "Didn't see a 5 in the random string of numbers after 10 seconds of waiting"
+fi
+
+
+if doTest "12";  then
+
+    showInfo "Script arguments: $@"
+
+    CL=$(cmdLineToStr "$@")
+    echo "CL: $CL"
+
+    prefixCmdLine PARAMS_ "$CL"
+    for p in ${!PARAMS_*}; do
+        echo "$p = ${!p}"
+    done
+
+    echo
+    echo
+
+    ARGS=" -at hi --s1=1 --s2=\"a b c\" --s3 \"d e f\" --hello-$%world='why is me'"
+    echo "ARGS: $ARGS"
+
+    prefixCmdLine ARGS_ "$ARGS"
+
+    for p in ${!ARGS_*}; do
+        echo "$p = ${!p}"
+    done
+
+    assertEq "$ARGS_a" "ON" "ARGS_a assertion failed"
+    assertEq "$ARGS_t" "hi" "ARGS_a assertion failed"
+    assertEq "$ARGS_s1" "1" "ARGS_s1 assertion failed"
+    assertEq "$ARGS_s2" "a b c" "ARGS_s2 assertion failed"
+    assertEq "$ARGS_s3" "d e f" "ARGS_s3 assertion failed"
+    assertEq "$ARGS_hello_world" "why is me" "ARGS_hello_world assertion failed"
+
 fi
 
 
