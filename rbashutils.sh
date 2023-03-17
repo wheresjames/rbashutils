@@ -1272,25 +1272,28 @@ endsWith() {
 # $@ = Arguments
 cmdLineToStr()
 {
+    local QTC="\"'"
     local ARGS=
     while [ ! -z "$1" ]; do
-
-            local k="${1}"
-            local e=$(strPos "$k" "=")
-            if [ "$e" -ge "0" ]; then
-                ARGS="${ARGS} ${k:0:$e} \"${k:(($e+1))}\""
-            else
-                if [ "$1" != "${1/ /-}" ] && [ -z ${QTC##*${1:0:1}*} ]; then
-                    ARGS="${ARGS} \"${1}\""
+            if [ "${1:0:1}" == "-" ]; then
+                local k="${1}"
+                local e=$(strPos "$k" "=")
+                if [ "$e" -ge "0" ]; then
+                    local _k=${k:0:$e}
+                    local _v=${k:(($e+1))}
+                    ARGS="${ARGS} ${_k} \"${_v//\"/\\\"}\""
                 else
-                    ARGS="${ARGS} ${1}"
+                    if [ "$1" != "${1/ /-}" ] && [ -z ${QTC##*${1:0:1}*} ]; then
+                        ARGS="${ARGS} \"${1//\"/\\\"}\""
+                    else
+                        ARGS="${ARGS} ${1}"
+                    fi
                 fi
+            else
+                ARGS="${ARGS} ${1}"
             fi
-
         shift
-
     done
-
     echo "$ARGS"
 }
 
@@ -1324,6 +1327,7 @@ prefixCmdLine()
     local INQT=
     local ACC=
     local REF=
+    local VAL=
     local i=0
     local n=0
     for ((i=0; i<${#ARGS}; ++i)); do
@@ -1331,13 +1335,18 @@ prefixCmdLine()
         local ch="${ARGS:i:1}"
 
         # Escape character?
-        if [ -z "${ESC##*$ch*}" ]; then
+        if [ -z "${ESC##*"$ch"*}" ]; then
+            ((i+=1))
+            ch="${ARGS:i:1}"
             ACC="${ACC}${ch}"
 
         # Is it a quoted character
-        elif [ -z "${QTC##*$ch*}" ]; then
+        elif [ -z "${QTC##*"$ch"*}" ]; then
             if [ -z "$INQT" ]; then
                 INQT="$ch"
+                if [ -z "$ACC" ]; then
+                    VAL="YES"
+                fi
             elif [ "$INQT" == "$ch" ]; then
                 INQT=
             fi
@@ -1347,69 +1356,119 @@ prefixCmdLine()
             ACC="${ACC}${ch}"
 
         # Break char?
-        elif [ -z "${BRK##*$ch*}" ]; then
+        elif [ -z "${BRK##*"$ch"*}" ]; then
 
             if [ ! -z "$ACC" ]; then
 
-                local k=
-                local v=
-                local e=$(strPos "$ACC" "=")
-                if [ "$e" -ge "0" ]; then
-                    k=${ACC:0:$e}
-                    v=${ACC:(($e+1))}
-                else
-                    k="$ACC"
-                    v=
-                    ((n+=1))
-                fi
-
-                SW=0
-                if [ "${k:0:2}" == "--" ]; then
-                    SW=2
-                elif [ "${k:0:1}" == "-" ]; then
-                    SW=1
-                fi
-
-                # Clean up the key
-                _k="$k"
-                k="${k#${k%%[a-zA-z]*}}"
-                k="${k//-/_}"
-                k="${k//[!0-9!a-z!A-Z!\_]/}"
-
-                # Single switch
-                if [ "$SW" -eq "1" ]; then
-                    for ((ki=0; ki<${#k}; ++ki)); do
-                        declare -g "${PRE}${k:ki:1}"="ON"
-                        REF="${k:ki:1}"
-                    done
-
-                # Double switch
-                elif [ "$SW" -eq "2" ]; then
-                    if [ -z "$v" ]; then
-                        REF="$k"
+                # Check switch type
+                local SW=0
+                if [ -z "$VAL" ]; then
+                    if [ "${ACC:0:2}" == "--" ]; then
+                        SW=2
+                    elif [ "${ACC:0:1}" == "-" ]; then
+                        SW=1
                     else
-                        declare -g "${PRE}${k}"="$v"
+                        VAL="TRUE"
+                    fi
+                fi
+
+                # Forced value?
+                if [ ! -z "$VAL" ]; then
+                    VAL=
+                    if [ ! -z "$REF" ]; then
+                        declare -g "${PRE}${REF}"="$ACC"
+                        REF=
+                    else
+                        ((n+=1))
+                        declare -g "${PRE}${n}"="$ACC"
                     fi
 
-                # Value
+                # Must parse
                 else
-                    v="$_k"
-                    if [ ! -z "$REF" ]; then
-                        declare -g "${PRE}${REF}"="$v"
+                    local k=
+                    local v=
+                    local e=$(strPos "$ACC" "=")
+                    local nul=
+                    if [ "$e" -ge "0" ]; then
+                        k=${ACC:0:$e}
+                        v=${ACC:(($e+1))}
+                    else
+                        k="$ACC"
+                        nul="TRUE"
+                    fi
+
+                    # Clean up the key
+                    _k="$k"
+                    k="${k#${k%%[a-zA-z]*}}"
+                    k="${k//-/_}"
+                    k="${k//[!0-9!a-z!A-Z!\_]/}"
+
+                    # Single switch
+                    if [ "$SW" -eq "1" ]; then
+                        for ((ki=0; ki<${#k}; ++ki)); do
+                            declare -g "${PRE}${k:ki:1}"="ON"
+                            if [ ! -z "$nul" ]; then
+                                REF="${k:ki:1}"
+                            fi
+                        done
+
+                    # Double switch
+                    elif [ "$SW" -eq "2" ]; then
+                        if [ ! -z "$nul" ]; then
+                            REF="$k"
+                        else
+                            declare -g "${PRE}${k}"="$v"
+                        fi
+
+                    # Value
+                    else
+                        v="$_k"
+                        if [ ! -z "$REF" ]; then
+                            declare -g "${PRE}${REF}"="$v"
+                            REF=
+                        else
+                            ((n+=1))
+                            declare -g "${PRE}${n}"="$v"
+                        fi
+
                     fi
 
                 fi
 
-                # Set global variable
-                # declare -g "${PRE}${k}"="$v"
-                ACC=
             fi
+
+            # Start over
+            ACC=
 
         else
             ACC="${ACC}${ch}"
-
+            ACC="${ACC#"${ACC%%[![:space:]]*}"}"
         fi
 
     done
+
+}
+
+# Returns the OS name
+#   @ returns one of "cygwin", "darwin", "freebsd", "linux", "msys", "win32"
+osName()
+{
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        echo "linux"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "darwin"
+    else
+        echo "$OSTYPE"
+    fi
+}
+
+# Returns the number of processors
+numProcs()
+{
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        echo $(sysctl -n hw.physicalcpu)
+    else
+        echo $(nproc)
+    fi
 
 }

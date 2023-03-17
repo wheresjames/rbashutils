@@ -217,13 +217,11 @@ if doTest "12";  then
     done
 
     echo
-    echo
 
-    ARGS=" -at hi --s1=1 --s2=\"a b c\" --s3 \"d e f\" --hello-$%world='why is me'"
+    ARGS=" -at hi --s1=1 --s2=\"a b c\" --s3 \"d e f\" --hello-$%world='why is me' --empty= first -xy= second --escape=\"escape \\\"this\\\"\" -z \"--not-a=switch\""
     echo "ARGS: $ARGS"
 
     prefixCmdLine ARGS_ "$ARGS"
-
     for p in ${!ARGS_*}; do
         echo "$p = ${!p}"
     done
@@ -234,8 +232,18 @@ if doTest "12";  then
     assertEq "$ARGS_s2" "a b c" "ARGS_s2 assertion failed"
     assertEq "$ARGS_s3" "d e f" "ARGS_s3 assertion failed"
     assertEq "$ARGS_hello_world" "why is me" "ARGS_hello_world assertion failed"
+    assertEq "$ARGS_1" "first" "ARGS_1 assertion failed"
+    assertEq "$ARGS_2" "second" "ARGS_2 assertion failed"
+    assertEq "$ARGS_escape" "escape \"this\"" "ARGS_escape assertion failed"
+    assertEq "$ARGS_x" "ON" "ARGS_x assertion failed"
+    assertEq "$ARGS_y" "ON" "ARGS_y assertion failed"
+    assertEq "$ARGS_z" "--not-a=switch" "ARGS_z assertion failed"
 
 fi
 
+if doTest "13";  then
+    showInfo "OS Type = $(osName)"
+    showInfo "Number of Processors = $(numProcs)"
+fi
 
 doExit 0
