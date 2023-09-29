@@ -1,4 +1,9 @@
 
+# v0.1.9
+    [+] Added string padding functions
+    [+] Added replace in file functions
+    [!] Fixes for macos compatibility
+
 # v0.1.7
     [+] Command line processing
     [+] Asserts for variables

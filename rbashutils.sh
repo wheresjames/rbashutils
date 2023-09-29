@@ -18,6 +18,7 @@ else
     RBASHUTILS_ROOTDIR=.
 fi
 if [[ ! -d "$RBASHUTILS_ROOTDIR" ]]; then RBASHUTILS_ROOTDIR="$PWD"; fi
+if [[ ! -d "$RBASHUTILS_ROOTDIR" ]]; then RBASHUTILS_ROOTDIR="$(pwd)"; fi
 RBASHUTILS_TOOLPATH="${RBASHUTILS_ROOTDIR}/.tools"
 RBASHUTILS_ONEXIT=
 
@@ -35,6 +36,7 @@ createBuildString()
 
     echo "${T[0]}.${T[1]}.${T[2]}.$((100 * ${T[3]} + ${T[4]}))"
 }
+
 
 # Pads string to the specified number of characters
 # @param [in] string - String to pad
@@ -86,7 +88,19 @@ limitStr()
     echo "$S1"
 }
 
-
+#----------------------------------------------------------
+# tput colors
+#
+# Color       #define       Value       RGB
+# black     COLOR_BLACK       0       0,   0,   0
+# red       COLOR_RED         1       max, 0,   0
+# green     COLOR_GREEN       2       0,   max, 0
+# yellow    COLOR_YELLOW      3       max, max, 0
+# blue      COLOR_BLUE        4       0,   0,   max
+# magenta   COLOR_MAGENTA     5       max, 0,   max
+# cyan      COLOR_CYAN        6       0,   max, max
+# white     COLOR_WHITE       7       max, max, max
+#----------------------------------------------------------
 
 # Put a border around a string
 # @param [in]    char   - Character to make the box from
@@ -170,7 +184,7 @@ showBanner()
 
         echo
         echo $BORDERSTR
-        echo -e "[\e[1;36mINFO\e[1;0m] \e[1;36m${@}\e[1;0m"
+        showNotice ${@}
         echo $BORDERSTR
         echo
     fi
@@ -181,7 +195,12 @@ showBanner()
 showNotice()
 {
     if [[ 0 -lt ${#@} ]]; then
-        echo -e "[\e[1;36m\e[1;2mNOTE\e[1;0m] \e[1;36m\e[1;2m${@}\e[1;0m"
+        if [ ! -t 1 ]; then
+            echo -e " [NOTE] ${STR}"
+        else
+            # echo -e "[\e[1;36m\e[1;2mNOTE\e[1;0m] \e[1;36m\e[1;2m${@}\e[1;0m"
+            echo -e "[$(tput setaf 2)NOTE$(tput sgr0)] $(tput setaf 2)${@}$(tput sgr0)"
+        fi
     fi
 }
 
@@ -190,7 +209,12 @@ showNotice()
 showInfo()
 {
     if [[ 0 -lt ${#@} ]]; then
-        echo -e "[\e[1;36mINFO\e[1;0m] \e[1;36m${@}\e[1;0m"
+        if [ ! -t 1 ]; then
+            echo -e " [INFO] ${STR}"
+        else
+            # echo -e "[\e[1;36mINFO\e[1;0m] \e[1;36m${@}\e[1;0m"
+            echo -e "[$(tput setaf 4)INFO$(tput sgr0)] $(tput setaf 4)${@}$(tput sgr0)"
+        fi
     fi
 }
 
@@ -199,7 +223,11 @@ showInfo()
 showWarning()
 {
     if [[ 0 -lt ${#@} ]]; then
-        echo -e "[\e[1;33mWARN\e[1;0m] \e[1;33m${@}\e[1;0m"
+        if [ ! -t 1 ]; then
+            echo -e " [WARN] ${STR}"
+        else
+            echo -e "[$(tput setaf 3)WARN$(tput sgr0)] $(tput setaf 3)${@}$(tput sgr0)"
+        fi
     fi
 }
 
@@ -208,7 +236,12 @@ showWarning()
 showFail()
 {
     if [[ 0 -lt ${#@} ]]; then
-        echo -e "[\e[1;31mFAIL\e[1;0m] \e[1;31m${@}\e[1;0m"
+        if [ ! -t 1 ]; then
+            echo -e " [FAIL] ${STR}"
+        else
+            # echo -e "[\e[1;31mFAIL\e[1;0m] \e[1;31m${@}\e[1;0m"
+            echo -e "[$(tput setaf 1)FAIL$(tput sgr0)] $(tput setaf 1)${@}$(tput sgr0)"
+        fi
     fi
 }
 
@@ -224,7 +257,12 @@ showError()
 
         echo
         echo $BORDERSTR
-        echo -e " [\e[1;31mERROR\e[1;0m] \e[1;31m${STR}\e[1;0m"
+        if [ ! -t 1 ]; then
+            echo -e " [ERROR] ${STR}"
+        else
+            # echo -e " [\e[1;31mERROR\e[1;0m] \e[1;31m${STR}\e[1;0m"
+            echo -e " [$(tput setaf 1)ERROR$(tput sgr0)] $(tput setaf 1)${STR}$(tput sgr0)"
+        fi
         echo $BORDERSTR
         echo
     fi
@@ -389,6 +427,30 @@ delCmd()
 {
     if isCmd $1; then
         RBASHUTILS_COMMANDLIST=${RBASHUTILS_COMMANDLIST/${1}/}
+    fi
+}
+
+# Converts string to all upper case
+# @param [in] string - String to convert
+# @returns string converted to upper case
+toUpper()
+{
+    if [[ $(osName) == "darwin"* ]]; then
+        echo "$(echo "$1" | awk '{print toupper($0)}')"
+    else
+        echo "${1^^}"
+    fi
+}
+
+# Converts string to all lower case
+# @param [in] string - String to convert
+# @returns string converted to lower case
+toLower()
+{
+    if [[ $(osName) == "darwin"* ]]; then
+        echo "$(echo "$1" | awk '{print tolower($0)}')"
+    else
+        echo "${1,,}"
     fi
 }
 
@@ -868,7 +930,7 @@ getPassword()
 {
     local PWDLEN=$1
     local PWDNAME=$2
-    local PWDPATH=$(getSecretsPath "passwords" $3)
+    local PWDPATH=
     local CHARSET=$4
     local NEWPASSWORD=$5
 
@@ -877,9 +939,9 @@ getPassword()
 
     local PASSWORD=
     local PWDFILE=
-    if [[ ! -z $PWDNAME ]]; then
-
+    if [[ ! -z "$PWDNAME" ]]; then
         PWDFILE="${PWDPATH}/$PWDNAME.pwd"
+        PWDPATH=$(getSecretsPath "passwords" $3)
         if [[ ! -z $NEWPASSWORD ]]; then
             rm "$PWDFILE"
         elif [[ -f $PWDFILE ]]; then
@@ -1472,3 +1534,39 @@ numProcs()
     fi
 
 }
+
+# @param [in] string    - String to find in the file
+# @param [in] string    - Replacement string
+# @param [in] string    - Name of file in which to search
+# @param [in] string    - Output file, if blank,
+#                         in place replace is performed
+replaceAllInFile()
+{
+    local FND="$1"
+    local RPL="$2"
+    local SRC="$3"
+    local TGT="$4"
+
+    if [ ! -f "$SRC" ]; then
+        showError "File not found : $SRC"
+        return
+    fi
+
+    #Escape strings
+    FND=${FND//\\/\\\\}
+    FND=${FND//\//\\\/}
+    RPL=${RPL//\\/\\\\}
+    RPL=${RPL//\//\\\/}
+
+    # Inplace?
+    if [ -z "$TGT" ]; then
+        if [[ $(osName) == "darwin"* ]]; then
+            sed -i '' "s/${FND}/${RPL}/g" "$SRC"
+        else
+            sed -i "s/${FND}/${RPL}/g" "$SRC"
+        fi
+    else
+        sed "s/${FND}/${RPL}/g" "$SRC" > "$TGT"
+    fi
+}
+

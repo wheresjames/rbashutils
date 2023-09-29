@@ -54,6 +54,8 @@ fi
 #----------------------------------------------------------
 if doTest "2";  then
 
+    showBanner "showBanner(): This is a banner"
+    showNotice "showNotice(): This is notice"
     showInfo "showInfo(): This is info"
     showWarning "showWarning(): This is a warning"
     showFail "showFail(): This is a failure"
@@ -64,9 +66,23 @@ fi
 #----------------------------------------------------------
 if doTest "3";  then
 
-    echo "padStr     : $(padStr Padded 27 \.)"
-    echo "padStrLeft : $(padStrLeft Padded 27 \.)"
-    echo "limitStr   : $(limitStr 'This string has been limited' 27)"
+    R=$(toUpper "HeLlO")
+    assertEq "$R" "HELLO"
+
+    R=$(toLower "HeLlO")
+    assertEq "$R" "hello"
+
+    R="$(padStr Padded 27 \.)"
+    assertEq "$R" "Padded....................."
+    echo "padStr     : $R"
+
+    R="$(padStrLeft Padded 27 \.)"
+    assertEq "$R" ".....................Padded"
+    echo "padStrLeft : $R"
+
+    R="$(limitStr 'This string has been limited' 27)"
+    assertEq "$R" "This string has been lim..."
+    echo "limitStr   : $R"
 
 fi
 
@@ -244,6 +260,51 @@ fi
 if doTest "13";  then
     showInfo "OS Type = $(osName)"
     showInfo "Number of Processors = $(numProcs)"
+fi
+
+if doTest "14";  then
+
+    TEMP=$(mktemp -d)
+    if [ ! -d "$TEMP" ]; then
+        exitWithError "Failed to make temp directory : $TEMP"
+    fi
+
+    TFILE="$TEMP/hello.txt"
+    TFILE2="$TEMP/hello2.txt"
+    echo "Hello World!" > "$TFILE"
+
+    # Replace in new file
+    replaceAllInFile "Hello" "Goodbye" "$TFILE" "$TFILE2"
+    CONTENTS=$(cat "$TFILE")
+    if [ "$CONTENTS" != "Hello World!" ]; then
+        exitWithError "Replace wrong file contents : $CONTENTS"
+    fi
+    CONTENTS=$(cat "$TFILE2")
+    if [ "$CONTENTS" != "Goodbye World!" ]; then
+        exitWithError "Failed to replace file contents : $CONTENTS"
+    fi
+
+    # Replace in current file
+    replaceAllInFile "Hello" "Goodbye" "$TFILE"
+    CONTENTS=$(cat "$TFILE")
+    if [ "$CONTENTS" != "Goodbye World!" ]; then
+        exitWithError "Failed to replace file contents : $CONTENTS"
+    fi
+
+    echo "/Hello\\ World!" > "$TFILE"
+
+    # Replace in current file
+    replaceAllInFile "/Hello\\" "\\Goodbye/" "$TFILE"
+    CONTENTS=$(cat "$TFILE")
+    if [ "$CONTENTS" != "\\Goodbye/ World!" ]; then
+        exitWithError "Failed to replace file contents : $CONTENTS"
+    fi
+
+    # Cleanup
+    unlink "$TFILE"
+    unlink "$TFILE2"
+    rmdir "$TEMP"
+
 fi
 
 doExit 0
