@@ -1,0 +1,10 @@
+name            rbashutils
+version         1.0.1
+description     A collection of reusable bash utility functions
+company         wheresjames
+author          Robert Umbehant
+email           rbashutils@wheresjames.com
+url             https://github.com/wheresjames/rbashutils
+repo            https://github.com/wheresjames/rbashutils.git
+bugs            https://github.com/wheresjames/rbashutils/issues
+license         MIT

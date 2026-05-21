@@ -5,8 +5,11 @@
 setDomain()
 {
     local DOMAINNAME=$1
-    if [ -z $DOMAINNAME ]; then
+    if [ -z "$DOMAINNAME" ]; then
         exitWithError "Domain name not specified"
+    fi
+    if [[ ! "$DOMAINNAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9.\-]*$ ]]; then
+        exitWithError "Invalid domain name: $DOMAINNAME"
     fi
 
     local CURDOMAIN=$(hostname)
@@ -16,8 +19,8 @@ setDomain()
         showInfo "Setting hostname..."
 
         if ! isCmd "docker"; then
-            hostname -F $DOMAINNAME
-            hostnamectl set-hostname $DOMAINNAME
+            hostname -F "$DOMAINNAME"
+            hostnamectl set-hostname "$DOMAINNAME"
             systemctl restart systemd-hostnamed
         fi
 
@@ -26,5 +29,4 @@ setDomain()
         sed -i "s/127.0.0.1.*localhost.*/127.0.0.1    $DOMAINNAME\n127.0.0.1    localhost/g" /etc/hosts
 
     fi
-fi
-
+}

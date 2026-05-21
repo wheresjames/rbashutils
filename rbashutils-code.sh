@@ -14,28 +14,35 @@ gitCheckoutOrUpdate()
     local PRJBRANCH=$4
     local PRJGITTAG=$5
 
-    local ORGPATH=`pwd`
+    local ORGPATH
+    ORGPATH=$(pwd)
 
     if [ ! -d "${PRJSUB}" ]; then
         mkdir -p "${PRJSUB}"
+        exitOnError "Failed to create directory: ${PRJSUB}"
     fi
 
     cd "${PRJSUB}"
+    exitOnError "Failed to switch to directory: ${PRJSUB}"
 
     # Need checkout?
-    if [ ! -d "${PRJSUB}/${PRJNAME}" ]; then
+    if [ ! -d "${PRJNAME}" ]; then
         showInfo "Checking out: ${PRJNAME}"
-        git clone ${PRJURL} ${PRJNAME}
+        git clone "${PRJURL}" "${PRJNAME}"
+        exitOnError "Failed to clone git repo: ${PRJURL}"
     fi
 
     # Update
-    cd "${PRJSUB}/${PRJNAME}"
+    cd "${PRJNAME}"
+    exitOnError "Failed to switch to repo directory: ${PRJNAME}"
 
     # Checkout branch
-    if [ ! -z $PRJBRANCH ]; then
+    if [ ! -z "$PRJBRANCH" ]; then
         showInfo "Switching to branch: ${PRJBRANCH}"
-        git checkout ${PRJBRANCH}
+        git checkout "${PRJBRANCH}"
+        exitOnError "Failed to checkout branch: ${PRJBRANCH}"
         git pull
+        exitOnError "Failed to pull branch: ${PRJBRANCH}"
     fi
 
     # Tag repo
@@ -46,7 +53,7 @@ gitCheckoutOrUpdate()
         git push origin "${PRJGITTAG}"
     fi
 
-    cd $ORGPATH
+    cd "$ORGPATH"
 }
 
 installCMake()
@@ -57,26 +64,20 @@ installCMake()
     fi
 
     ORGDIR=$PWD
-    OUTDIR=`mktemp`
-
-    if [ -z $OUTDIR ]; then
-        exitWithError "Failed to create temporary directory name"
+    OUTDIR=$(mktemp -d)
+    if [ -z "$OUTDIR" ] || [ ! -d "$OUTDIR" ]; then
+        exitWithError "Failed to create temporary directory"
     fi
-
-    if [ ! -f $OUTDIR ]; then
-        exitWithError "Failed to create temporary directory file"
-    fi
-
-    rm "$OUTDIR"
-    mkdir -p "$OUTDIR"
-    exitOnError "Failed to create temp directory : $OUTDIR"
 
     cd "$OUTDIR"
     exitOnError "Failed to switch to temp directory : $OUTDIR"
 
     showInfo "Installing CMake version : $CMAKEVER"
 
-    wget https://github.com/Kitware/CMake/releases/download/v${CMAKEVER}/cmake-${CMAKEVER}.tar.gz
+    wget "https://github.com/Kitware/CMake/releases/download/v${CMAKEVER}/cmake-${CMAKEVER}.tar.gz"
+    wget "https://github.com/Kitware/CMake/releases/download/v${CMAKEVER}/cmake-${CMAKEVER}-SHA-256.txt"
+    grep "cmake-${CMAKEVER}.tar.gz" "cmake-${CMAKEVER}-SHA-256.txt" | sha256sum --check -
+    exitOnError "SHA256 verification failed for cmake-${CMAKEVER}.tar.gz"
     tar xvzf ./cmake-${CMAKEVER}.tar.gz
     cd cmake-${CMAKEVER}
 

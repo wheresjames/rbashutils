@@ -44,10 +44,15 @@ downloadTool()
     local TOOLNAME=$1
     local TOOLURL=$2
     local TOOLDNL=$3
+    local EXPECTED_SHA256=$4
 
     local TOOLEXEC="${RBASHUTILS_TOOLPATH}/${TOOLNAME}"
 
-    if [ -f $TOOLEXEC ]; then
+    if [ -f "$TOOLEXEC" ]; then
+        if [ ! -z "$EXPECTED_SHA256" ]; then
+            echo "${EXPECTED_SHA256}  ${TOOLEXEC}" | sha256sum --check -
+            exitOnError "SHA256 verification failed for cached $TOOLNAME"
+        fi
         echo "$TOOLEXEC"
         return 0
     fi
@@ -59,10 +64,15 @@ downloadTool()
     fi
 
     # Download the tool if we don't have it
-    curl -L $TOOLURL -o $TOOLEXEC
+    curl -L "$TOOLURL" -o "$TOOLEXEC"
     exitOnError "CURL failed to download $TOOLNAME"
-    if [ ! -f $TOOLEXEC ]; then
+    if [ ! -f "$TOOLEXEC" ]; then
         exitWithError "Failed to download $TOOLNAME"
+    fi
+
+    if [ ! -z "$EXPECTED_SHA256" ]; then
+        echo "${EXPECTED_SHA256}  ${TOOLEXEC}" | sha256sum --check -
+        exitOnError "SHA256 verification failed for $TOOLNAME"
     fi
 
     echo "$TOOLEXEC"
@@ -119,8 +129,8 @@ downloadToolCompressed()
     esac
 
     # Find the file
-    local TOOLFIND=$(find $TMPZIPPATH | grep -E $TOOLGREP | head -1)
-    if [ -z $TOOLFIND ] || [ ! -f $TOOLFIND ]; then
+    local TOOLFIND=$(find "$TMPZIPPATH" | grep -E "$TOOLGREP" | head -1)
+    if [ -z "$TOOLFIND" ] || [ ! -f "$TOOLFIND" ]; then
         exitWithError "Failed to find in archive : $TOOLGREP -> $TOOLNAME"
     fi
 
@@ -152,7 +162,7 @@ initCompress()
     # fi
 
     # Closure compiler
-    CCEXEC=$(downloadTool "cc.jar" "https://repo1.maven.org/maven2/com/google/javascript/closure-compiler/v20201102/closure-compiler-v20201102.jar")
+    CCEXEC=$(downloadTool "cc.jar" "https://repo1.maven.org/maven2/com/google/javascript/closure-compiler/v20201102/closure-compiler-v20201102.jar" "" "1cbe593d76ab0939999df96d6bad8f700444cc7ae39fc20320c75fd1498eb293")
     if [[ -z "$CCEXEC" ]] || [[ ! -f "$CCEXEC" ]]; then
         exitWithError "Failed to install closure compiler"
     fi
@@ -164,7 +174,7 @@ initCompress()
         exitOnError "Failed to install html-minifier"
     fi
 
-    YUIEXEC=$(downloadTool "yui.jar" "https://github.com/yui/yuicompressor/releases/download/v2.4.8/yuicompressor-2.4.8.jar")
+    YUIEXEC=$(downloadTool "yui.jar" "https://github.com/yui/yuicompressor/releases/download/v2.4.8/yuicompressor-2.4.8.jar" "" "30371db57285e490c761f1cca52527e697fe09077a16da46fb892e98a6a25de2")
     if [[ -z "$YUIEXEC" ]] || [[ ! -f "$YUIEXEC" ]]; then
         exitWithError "Failed to install yuicompressor"
     fi
@@ -187,7 +197,7 @@ compressWeb()
 
     showInfo "- Compressing : $IND"
 
-    if [[ "$IND" =~ ".." ]]; then
+    if [[ "$IND" == *..* ]]; then
         exitWithError "Invalid source directory : $IND"
     fi
 
@@ -195,7 +205,7 @@ compressWeb()
         exitWithError "Directory doesn't exist : $IND"
     fi
 
-    if [[ "$OUTD" =~ ".." ]]; then
+    if [[ "$OUTD" == *..* ]]; then
         exitWithError "Invalid destination directory : $OUTD"
     fi
 
@@ -294,7 +304,7 @@ compressWeb()
 
     done
 
-    return 1
+    return 0
 }
 
 # Create self signed cert
@@ -311,7 +321,7 @@ createSelfSignedCert()
     local CERTINFO=$3
 
     if [[ -z $CERTDIR ]]; then
-        CERTDST="./certs/${DOMAINNAME}"
+        CERTDIR="./certs/${DOMAINNAME}"
     fi
 
     if [[ -z $CERTINFO ]]; then
@@ -355,7 +365,7 @@ createCertRequest()
     local CERTINFO=$4
 
     if [[ -z $CERTDIR ]]; then
-        CERTDST="./certs/${DOMAINNAME}"
+        CERTDIR="./certs/${DOMAINNAME}"
     fi
 
     if [[ -z $CERTINFO ]]; then
@@ -372,12 +382,36 @@ createCertRequest()
             CERTPASS=$(getPassword 32 "${DOMAINNAME}" "$CERTDIR")
         fi
 
-        # Create key
-        openssl genrsa -des3 -passout pass:$CERTPASS -out "$CERTDIR/privkey.key" 2048 -noout
-        openssl rsa -in "$CERTDIR/privkey.key" -passin pass:$CERTPASS -out "$CERTDIR/privkey.key"
+        # Write passphrase to a temp file so it never appears in the process list
+        local PASSTMP
+        PASSTMP=$(mktemp)
+        exitOnError "Failed to create passphrase temp file"
+        chmod 600 "$PASSTMP"
+        echo "$CERTPASS" > "$PASSTMP"
+        local OLD_INT_TRAP
+        local OLD_TERM_TRAP
+        OLD_INT_TRAP=$(trap -p INT)
+        OLD_TERM_TRAP=$(trap -p TERM)
+        trap 'rm -f "$PASSTMP"; exit 130' INT
+        trap 'rm -f "$PASSTMP"; exit 143' TERM
 
-        #Create request
-        openssl req -new -key "$CERTDIR/privkey.key" -out "$CERTDIR/certreq.csr" -passin pass:$CERTPASS -subj "$CERTINF"
+        # Create key
+        openssl genrsa -des3 -passout "file:$PASSTMP" -out "$CERTDIR/privkey.key" 2048
+        local SSLRC=$?
+        if [[ 0 -eq $SSLRC ]]; then
+            openssl rsa -in "$CERTDIR/privkey.key" -passin "file:$PASSTMP" -out "$CERTDIR/privkey.key"
+            SSLRC=$?
+        fi
+        if [[ 0 -eq $SSLRC ]]; then
+            openssl req -new -key "$CERTDIR/privkey.key" -out "$CERTDIR/certreq.csr" -passin "file:$PASSTMP" -subj "$CERTINFO"
+            SSLRC=$?
+        fi
+        rm -f "$PASSTMP"
+        if [ -z "$OLD_INT_TRAP" ]; then trap - INT; else eval "$OLD_INT_TRAP"; fi
+        if [ -z "$OLD_TERM_TRAP" ]; then trap - TERM; else eval "$OLD_TERM_TRAP"; fi
+        if [[ 0 -ne $SSLRC ]]; then
+            exitWithError "Error creating certificate request for ${DOMAINNAME}"
+        fi
     fi
 }
 

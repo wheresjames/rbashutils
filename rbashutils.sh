@@ -1,6 +1,11 @@
 #!/bin/bash
 
-# We're here
+# Guard against double-sourcing. Keep IS_RBASHUTILS for compatibility with
+# existing scripts that check it after sourcing this library.
+if [[ -n "${RBASHUTILS_LOADED:-}" ]]; then
+    return 0 2>/dev/null || exit 0
+fi
+RBASHUTILS_LOADED="YES"
 IS_RBASHUTILS="YES"
 
 # Where to keep secrets
@@ -15,12 +20,18 @@ if [[ ! -z "${BASH_SOURCE[0]}" ]]; then
         RBASHUTILS_ROOTDIR=.
     fi
 else
-    RBASHUTILS_ROOTDIR=.
+RBASHUTILS_ROOTDIR=.
 fi
 if [[ ! -d "$RBASHUTILS_ROOTDIR" ]]; then RBASHUTILS_ROOTDIR="$PWD"; fi
 if [[ ! -d "$RBASHUTILS_ROOTDIR" ]]; then RBASHUTILS_ROOTDIR="$(pwd)"; fi
 RBASHUTILS_TOOLPATH="${RBASHUTILS_ROOTDIR}/.tools"
 RBASHUTILS_ONEXIT=
+RBASHUTILS_LOG_LEVEL="${RBASHUTILS_LOG_LEVEL:-notice}"
+RBASHUTILS_LOG_FILE="${RBASHUTILS_LOG_FILE:-}"
+RBASHUTILS_DRYRUN="${RBASHUTILS_DRYRUN:-}"
+RBASHUTILS_CLEANUP_PATHS=()
+RBASHUTILS_CLEANUP_CMDS=()
+RBASHUTILS_CLEANUP_TRAP_SET=
 
 
 # Creates a build string based on the current timestamp
@@ -190,13 +201,76 @@ showBanner()
     fi
 }
 
+rbashutilsLogLevelValue()
+{
+    case "$1" in
+        debug)  echo 0 ;;
+        notice) echo 1 ;;
+        info)   echo 2 ;;
+        warn)   echo 3 ;;
+        error)  echo 4 ;;
+        none)   echo 99 ;;
+        *)      echo 2 ;;
+    esac
+}
+
+rbashutilsShouldLog()
+{
+    local LVL
+    local CUR
+    LVL=$(rbashutilsLogLevelValue "$1")
+    CUR=$(rbashutilsLogLevelValue "$RBASHUTILS_LOG_LEVEL")
+    [[ $LVL -ge $CUR ]]
+}
+
+rbashutilsWriteLogFile()
+{
+    if [[ ! -z "$RBASHUTILS_LOG_FILE" ]]; then
+        printf '[%s] %s\n' "$1" "$2" >> "$RBASHUTILS_LOG_FILE"
+    fi
+}
+
+setLogLevel()
+{
+    case "$1" in
+        debug|notice|info|warn|error|none)
+            RBASHUTILS_LOG_LEVEL="$1"
+        ;;
+        *)
+            showError "Invalid log level: $1"
+            return 1
+        ;;
+    esac
+}
+
+setLogFile()
+{
+    RBASHUTILS_LOG_FILE="$1"
+    if [[ ! -z "$RBASHUTILS_LOG_FILE" ]]; then
+        touch "$RBASHUTILS_LOG_FILE"
+    fi
+}
+
+showDebug()
+{
+    if [[ 0 -lt ${#@} ]] && rbashutilsShouldLog debug; then
+        rbashutilsWriteLogFile "DEBUG" "${@}"
+        if [ ! -t 1 ]; then
+            echo -e " [DEBUG] ${@}"
+        else
+            echo -e "[$(tput setaf 6)DEBUG$(tput sgr0)] $(tput setaf 6)${@}$(tput sgr0)"
+        fi
+    fi
+}
+
 # Show low visibility information
 # @param [in...] string
 showNotice()
 {
-    if [[ 0 -lt ${#@} ]]; then
+    if [[ 0 -lt ${#@} ]] && rbashutilsShouldLog notice; then
+        rbashutilsWriteLogFile "NOTE" "${@}"
         if [ ! -t 1 ]; then
-            echo -e " [NOTE] ${STR}"
+            echo -e " [NOTE] ${@}"
         else
             # echo -e "[\e[1;36m\e[1;2mNOTE\e[1;0m] \e[1;36m\e[1;2m${@}\e[1;0m"
             echo -e "[$(tput setaf 2)NOTE$(tput sgr0)] $(tput setaf 2)${@}$(tput sgr0)"
@@ -208,9 +282,10 @@ showNotice()
 # @param [in...] string
 showInfo()
 {
-    if [[ 0 -lt ${#@} ]]; then
+    if [[ 0 -lt ${#@} ]] && rbashutilsShouldLog info; then
+        rbashutilsWriteLogFile "INFO" "${@}"
         if [ ! -t 1 ]; then
-            echo -e " [INFO] ${STR}"
+            echo -e " [INFO] ${@}"
         else
             # echo -e "[\e[1;36mINFO\e[1;0m] \e[1;36m${@}\e[1;0m"
             echo -e "[$(tput setaf 4)INFO$(tput sgr0)] $(tput setaf 4)${@}$(tput sgr0)"
@@ -222,9 +297,10 @@ showInfo()
 # @param [in...] string
 showWarning()
 {
-    if [[ 0 -lt ${#@} ]]; then
+    if [[ 0 -lt ${#@} ]] && rbashutilsShouldLog warn; then
+        rbashutilsWriteLogFile "WARN" "${@}"
         if [ ! -t 1 ]; then
-            echo -e " [WARN] ${STR}"
+            echo -e " [WARN] ${@}"
         else
             echo -e "[$(tput setaf 3)WARN$(tput sgr0)] $(tput setaf 3)${@}$(tput sgr0)"
         fi
@@ -235,9 +311,10 @@ showWarning()
 # @param [in...] string
 showFail()
 {
-    if [[ 0 -lt ${#@} ]]; then
+    if [[ 0 -lt ${#@} ]] && rbashutilsShouldLog error; then
+        rbashutilsWriteLogFile "FAIL" "${@}"
         if [ ! -t 1 ]; then
-            echo -e " [FAIL] ${STR}"
+            echo -e " [FAIL] ${@}"
         else
             # echo -e "[\e[1;31mFAIL\e[1;0m] \e[1;31m${@}\e[1;0m"
             echo -e "[$(tput setaf 1)FAIL$(tput sgr0)] $(tput setaf 1)${@}$(tput sgr0)"
@@ -249,11 +326,12 @@ showFail()
 # @param [in...] string
 showError()
 {
-    if [[ 0 -lt ${#@} ]]; then
+    if [[ 0 -lt ${#@} ]] && rbashutilsShouldLog error; then
 
         local STR="${@}"
         local BORDERLEN=$((${#STR}+10))
         local BORDERSTR=$(padStr - $BORDERLEN -)
+        rbashutilsWriteLogFile "ERROR" "$STR"
 
         echo
         echo $BORDERSTR
@@ -275,6 +353,77 @@ onExit()
     RBASHUTILS_ONEXIT=$1
 }
 
+rbashutilsInstallCleanupTrap()
+{
+    if [[ -z "$RBASHUTILS_CLEANUP_TRAP_SET" ]]; then
+        trap rbashutilsRunCleanup EXIT
+        RBASHUTILS_CLEANUP_TRAP_SET="YES"
+    fi
+}
+
+cleanupOnExit()
+{
+    if [[ 0 -lt $# ]]; then
+        RBASHUTILS_CLEANUP_CMDS+=("$*")
+        rbashutilsInstallCleanupTrap
+    fi
+}
+
+cleanupPathOnExit()
+{
+    if [[ ! -z "$1" ]]; then
+        RBASHUTILS_CLEANUP_PATHS+=("$1")
+        rbashutilsInstallCleanupTrap
+    fi
+}
+
+rbashutilsRunCleanup()
+{
+    local CMD
+    local PTH
+    for CMD in "${RBASHUTILS_CLEANUP_CMDS[@]}"; do
+        if [[ ! -z "$CMD" ]]; then
+            eval "$CMD"
+        fi
+    done
+    for PTH in "${RBASHUTILS_CLEANUP_PATHS[@]}"; do
+        if [[ ! -z "$PTH" ]] && [[ -e "$PTH" ]]; then
+            rm -rf "$PTH"
+        fi
+    done
+    RBASHUTILS_CLEANUP_CMDS=()
+    RBASHUTILS_CLEANUP_PATHS=()
+}
+
+cleanupNow()
+{
+    rbashutilsRunCleanup
+}
+
+makeTempDir()
+{
+    local TMP
+    TMP=$(mktemp -d) || return 1
+    if [[ ! -z "$1" ]] && isValidVarName "$1"; then
+        declare -g "${1}=${TMP}"
+        cleanupPathOnExit "$TMP"
+    else
+        echo "$TMP"
+    fi
+}
+
+makeTempFile()
+{
+    local TMP
+    TMP=$(mktemp) || return 1
+    if [[ ! -z "$1" ]] && isValidVarName "$1"; then
+        declare -g "${1}=${TMP}"
+        cleanupPathOnExit "$TMP"
+    else
+        echo "$TMP"
+    fi
+}
+
 # Exits script
 # @param [in] int - Exit code
 doExit()
@@ -282,6 +431,7 @@ doExit()
     if [ ! -z $RBASHUTILS_ONEXIT ]; then
         $RBASHUTILS_ONEXIT $@
     fi
+    rbashutilsRunCleanup
 
     echo
     exit $1
@@ -380,6 +530,107 @@ warnOnError()
     if [[ 0 -eq $? ]]; then return 0; fi
     showWarning $@
     return -1
+}
+
+rbashutilsStrictMode()
+{
+    set -euo pipefail
+    IFS=$'\n\t'
+}
+
+setDryRun()
+{
+    RBASHUTILS_DRYRUN="$1"
+}
+
+cmdLineQuote()
+{
+    local OUT=()
+    local ARG
+    for ARG in "$@"; do
+        local Q
+        printf -v Q '%q' "$ARG"
+        OUT+=("$Q")
+    done
+    echo "${OUT[*]}"
+}
+
+runCmd()
+{
+    local QUIET=
+    local DRYRUN="$RBASHUTILS_DRYRUN"
+    while [[ "$1" == --* ]]; do
+        case "$1" in
+            --quiet) QUIET="YES" ;;
+            --dry-run) DRYRUN="YES" ;;
+            --) shift; break ;;
+            *) showError "runCmd: unknown option $1"; return 2 ;;
+        esac
+        shift
+    done
+    if [[ 0 -eq $# ]]; then
+        showError "runCmd: command not specified"
+        return 2
+    fi
+    if [[ -z "$QUIET" ]]; then
+        showDebug "+ $(cmdLineQuote "$@")"
+    fi
+    if [[ ! -z "$DRYRUN" ]]; then
+        if [[ -z "$QUIET" ]]; then showInfo "[dry-run] $(cmdLineQuote "$@")"; fi
+        return 0
+    fi
+    "$@"
+}
+
+runCmdQuiet()
+{
+    runCmd --quiet "$@" >/dev/null 2>&1
+}
+
+runCmdCapture()
+{
+    local __VAR=$1
+    shift
+    if [[ -z "$__VAR" ]] || [[ ! "$__VAR" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+        showError "runCmdCapture: invalid output variable: $__VAR"
+        return 2
+    fi
+    local __OUT
+    local __ERREXIT=
+    case $- in *e*) __ERREXIT="YES"; set +e ;; esac
+    __OUT=$("$@")
+    local __RC=$?
+    if [[ ! -z "$__ERREXIT" ]]; then set -e; fi
+    declare -g "${__VAR}=${__OUT}"
+    return $__RC
+}
+
+runCmdRetry()
+{
+    local RETRIES=3
+    local DELAY=1
+    while [[ "$1" == --* ]]; do
+        case "$1" in
+            --retries) shift; RETRIES=$1 ;;
+            --delay) shift; DELAY=$1 ;;
+            --) shift; break ;;
+            *) showError "runCmdRetry: unknown option $1"; return 2 ;;
+        esac
+        shift
+    done
+    local TRY=1
+    local RC=0
+    while [[ $TRY -le $RETRIES ]]; do
+        local __ERREXIT=
+        case $- in *e*) __ERREXIT="YES"; set +e ;; esac
+        runCmd "$@"
+        RC=$?
+        if [[ ! -z "$__ERREXIT" ]]; then set -e; fi
+        if [[ 0 -eq $RC ]]; then return 0; fi
+        if [[ $TRY -lt $RETRIES ]]; then sleep "$DELAY"; fi
+        TRY=$((TRY + 1))
+    done
+    return $RC
 }
 
 # Sets the command list
@@ -542,7 +793,7 @@ aptInstall()
 
     # The space is neede for proper matching of the first item
     local PKGINSTALLED=" $(dpkg --get-selections)"
-    local INSTALL=
+    local INSTALL=()
     for PKG in "$@";do
         if findInStr "$PKGINSTALLED" "^$PKG[[:space:]]+install"; then
             if [ -z "$QUIET" ]; then
@@ -550,13 +801,13 @@ aptInstall()
             fi
         else
             showInfo "[ ] Installing $PKG..."
-            INSTALL="$INSTALL $PKG"
+            INSTALL+=("$PKG")
         fi
     done
 
-    if [ ! -z "$INSTALL" ]; then
-        apt-get -yq install $INSTALL
-        exitOnError "Failed to install $INSTALL"
+    if [ ${#INSTALL[@]} -gt 0 ]; then
+        apt-get -yq install "${INSTALL[@]}"
+        exitOnError "Failed to install ${INSTALL[*]}"
     fi
 }
 
@@ -575,7 +826,7 @@ isAptRepo()
 addAptRepo()
 {
     if ! isAptRepo "$1"; then
-        apt-add-repository $1
+        apt-add-repository "$1"
         if ! warnOnError "Unable to add repo $1"; then
             apt-get -yq update
         fi
@@ -752,6 +1003,107 @@ isOnline()
     return $?
 }
 
+isValidVarName()
+{
+    [[ "$1" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]
+}
+
+isValidDomain()
+{
+    [[ "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]$ ]] && [[ "$1" == *.* ]] && [[ "$1" != *..* ]]
+}
+
+isValidPort()
+{
+    [[ "$1" =~ ^[0-9]+$ ]] && [[ $1 -ge 1 ]] && [[ $1 -le 65535 ]]
+}
+
+isSafePath()
+{
+    local PTH=$1
+    local RPTH
+    if [[ -z "$PTH" ]] || [[ ${#PTH} -lt 3 ]]; then return 1; fi
+    RPTH=$(realpath -m "$PTH" 2>/dev/null) || return 1
+    [[ "$RPTH" != "/" ]] && [[ "${RPTH%/*}" != "" ]]
+}
+
+requireCommand()
+{
+    local CMD
+    for CMD in "$@"; do
+        if ! command -v "$CMD" >/dev/null 2>&1; then
+            exitWithError "Required command not found: $CMD"
+        fi
+    done
+}
+
+requireRoot()
+{
+    if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
+        exitWithError "This operation must be run as root"
+    fi
+}
+
+writeFileAtomic()
+{
+    local FILENAME=$1
+    local CONTENT=$2
+    local DIRNAME
+    local TMPFILE
+    DIRNAME=$(dirname "$FILENAME")
+    TMPFILE=$(mktemp "${DIRNAME}/.tmp.$(basename "$FILENAME").XXXXXX") || return 1
+    printf "%s" "$CONTENT" > "$TMPFILE" || { rm -f "$TMPFILE"; return 1; }
+    mv "$TMPFILE" "$FILENAME"
+}
+
+appendLineOnce()
+{
+    local FILENAME=$1
+    local LINE=$2
+    if [[ ! -f "$FILENAME" ]]; then
+        touch "$FILENAME" || return 1
+    fi
+    if ! grep -F -x -q "$LINE" "$FILENAME"; then
+        if [[ -s "$FILENAME" ]] && [[ "$(tail -c 1 "$FILENAME")" != "" ]]; then
+            printf "\n" >> "$FILENAME"
+        fi
+        printf "%s\n" "$LINE" >> "$FILENAME"
+    fi
+}
+
+replaceLineAtomic()
+{
+    local FILENAME=$1
+    local FIND=$2
+    local REPLACE=$3
+    local TMPFILE
+    if [[ ! -f "$FILENAME" ]]; then
+        touch "$FILENAME" || return 1
+    fi
+    TMPFILE=$(mktemp "$(dirname "$FILENAME")/.tmp.$(basename "$FILENAME").XXXXXX") || return 1
+    awk -v find="$FIND" -v repl="$REPLACE" '{ if ($0 == find) print repl; else print $0 }' "$FILENAME" > "$TMPFILE" || { rm -f "$TMPFILE"; return 1; }
+    mv "$TMPFILE" "$FILENAME"
+}
+
+withLock()
+{
+    local LOCK=$1
+    shift
+    if [[ -z "$LOCK" ]] || [[ 0 -eq $# ]]; then
+        showError "withLock: usage: withLock <lockfile> <command> [args...]"
+        return 2
+    fi
+    local LOCKDIR="${LOCK}.lockdir"
+    if ! mkdir "$LOCKDIR" 2>/dev/null; then
+        showWarning "Lock already held: $LOCK"
+        return 1
+    fi
+    "$@"
+    local RC=$?
+    rmdir "$LOCKDIR"
+    return $RC
+}
+
 # Adds the specified environment variable to the specified file
 # if it is not already found in the file, otherwise, modifies the
 # existing variable
@@ -767,15 +1119,22 @@ setEnv()
     local VAL=$2
     local FILE=$3
 
-    declare $VAR=$VAL
-    export $VAR=$VAL
+    if ! isValidVarName "$VAR"; then
+        exitWithError "setEnv: invalid variable name: $VAR"
+    fi
+    declare -g "${VAR}=${VAL}"
+    export "$VAR"
     if [[ ! -z "$FILE" ]]; then
-        FILETXT=$(cat ${FILE})
-        if ! findInStr "${FILETXT}" "export ${VAR}="; then
-            printf "\nexport ${VAR}=${VAL}\n" >> "${FILE}"
-        else
-            sed -i "s/export ${VAR//\//\\\/}=.*/export ${VAR//\//\\\/}=${VAL//\//\\\/}/g" "${FILE}"
+        local EXPORTLINE
+        printf -v EXPORTLINE 'export %s=%q' "$VAR" "$VAL"
+        if [ ! -f "$FILE" ]; then
+            touch "$FILE"
         fi
+        local TMPFILE
+        TMPFILE=$(mktemp "$(dirname "$FILE")/.tmp.$(basename "$FILE").XXXXXX") || return 1
+        grep -v -E "^[[:space:]]*export[[:space:]]+${VAR}=" "$FILE" > "$TMPFILE"
+        mv "$TMPFILE" "$FILE"
+        printf "\n%s\n" "$EXPORTLINE" >> "$FILE"
     fi
 }
 
@@ -806,13 +1165,13 @@ addLinesToFile()
     local FILENAME=$1
     local ADDLINES=$2
 
-    FILEDATA=$(cat $FILENAME)
+    FILEDATA=$(cat "$FILENAME")
     while IFS= read -r L; do
         L=$(trimWs $L)
         if [[ ! -z "$L" ]]; then
             if ! findInStr "$FILEDATA" "$L"; then
                 showInfo "[+] Adding \"$L\" to \"$FILENAME\""
-                echo -e "$L" >> "$FILENAME"
+                appendLineOnce "$FILENAME" "$L"
             fi
         fi
     done < <(echo "$ADDLINES")
@@ -832,7 +1191,10 @@ delLinesFromFile()
         if [[ ! -z "$L" ]]; then
             if findInStr "$FILEDATA" "$L"; then
                 showInfo "[-] Deleting \"$L\" from \"$FILENAME\""
-                sed -i "s/$L//g" "$FILENAME"
+                local TMPFILE
+                TMPFILE=$(mktemp "$(dirname "$FILENAME")/.tmp.$(basename "$FILENAME").XXXXXX") || return 1
+                grep -v -F -x "$L" "$FILENAME" > "$TMPFILE"
+                mv "$TMPFILE" "$FILENAME"
             fi
         fi
     done < <(echo "$DELLINES")
@@ -856,7 +1218,7 @@ findFile()
     fi
 
     # Search for a file matching the template?
-    local FINDFILE=$(find $SEARCHROOT | grep "$FINDTMPL" | head -1)
+    local FINDFILE=$(find "$SEARCHROOT" | grep -F "$FINDTMPL" | head -1)
 
     # Make sure file exists
     if [ ! -f "$FINDFILE" ]; then
@@ -940,8 +1302,8 @@ getPassword()
     local PASSWORD=
     local PWDFILE=
     if [[ ! -z "$PWDNAME" ]]; then
-        PWDFILE="${PWDPATH}/$PWDNAME.pwd"
         PWDPATH=$(getSecretsPath "passwords" $3)
+        PWDFILE="${PWDPATH}/$PWDNAME.pwd"
         if [[ ! -z $NEWPASSWORD ]]; then
             rm "$PWDFILE"
         elif [[ -f $PWDFILE ]]; then
@@ -953,6 +1315,7 @@ getPassword()
         PASSWORD=$(head /dev/urandom | tr -dc "$CHARSET" | head -c ${PWDLEN})
         if [[ ! -z $PWDFILE ]]; then
             echo "${PASSWORD}" > "${PWDFILE}"
+            chmod 600 "${PWDFILE}"
         fi
     fi
 
@@ -977,7 +1340,7 @@ lastModified()
         if [[ -d "$SRC" ]]; then
 
             local TTS=$(lastModified "$SRC")
-            if [[ $TS < $TTS ]]; then
+            if [[ $TS -lt $TTS ]]; then
                 TS=$TTS
             fi
 
@@ -990,7 +1353,7 @@ lastModified()
         # Process this file
         elif [[ -f "$SRC" ]]; then
             local TTS=$(date +%s -r "${SRC}")
-            if [[ $TS < $TTS ]]; then
+            if [[ $TS -lt $TTS ]]; then
                 TS=$TTS
             fi
         fi
@@ -1129,11 +1492,11 @@ countFiles()
 
         #Directory
         if [[ -d "$SRC" ]]; then
-            MORE=$(countFiles "$SRC")
+            MORE=$(countFiles "$SRC" "$CNTDIRS")
             if [ ! -z "$CNTDIRS" ]; then
                 COUNT=$(($COUNT+$MORE+1))
             else
-                COUNT=$(($COUNT+$MORE+1))
+                COUNT=$(($COUNT+$MORE))
             fi
 
         # File
@@ -1275,11 +1638,12 @@ getCertTime()
 rmtree()
 {
     local DIR=$1
-    if [[ ${#DIR} -lt 3 ]]; then
-        return
-    fi
-    if [[ -d $DIR ]]; then
-        rm -Rf $DIR
+    if [[ ${#DIR} -lt 3 ]]; then return 1; fi
+    local RDIR
+    RDIR=$(realpath -m "$DIR" 2>/dev/null) || return 1
+    if [[ "$RDIR" == "/" ]] || [[ "${RDIR%/*}" == "" ]]; then return 1; fi
+    if [[ -d "$DIR" ]]; then
+        rm -Rf "$DIR"
     fi
 }
 
@@ -1288,13 +1652,14 @@ rmtree()
 remkdir()
 {
     local DIR=$1
-    if [[ ${#DIR} -lt 3 ]]; then
-        return
+    if [[ ${#DIR} -lt 3 ]]; then return 1; fi
+    local RDIR
+    RDIR=$(realpath -m "$DIR" 2>/dev/null) || return 1
+    if [[ "$RDIR" == "/" ]] || [[ "${RDIR%/*}" == "" ]]; then return 1; fi
+    if [[ -d "$DIR" ]]; then
+        rm -Rf "$DIR"
     fi
-    if [[ -d $DIR ]]; then
-        rm -Rf $DIR
-    fi
-    mkdir -p $DIR
+    mkdir -p "$DIR"
 }
 
 
@@ -1511,6 +1876,56 @@ prefixCmdLine()
 
 }
 
+# Parse command-line arguments directly from "$@" into prefixed variables.
+# Switches become ${prefix}name values, positional args become ${prefix}1..N,
+# and ${prefix}COUNT stores the number of positional args.
+parseArgs()
+{
+    local PRE=$1
+    shift
+    local POS=0
+    local KEY
+    local VAL
+    while [[ 0 -lt $# ]]; do
+        case "$1" in
+            --*=*)
+                KEY="${1%%=*}"
+                KEY="${KEY#--}"
+                VAL="${1#*=}"
+                KEY="${KEY//-/_}"
+                KEY="${KEY//[^0-9a-zA-Z_]/}"
+                if [[ -z "$KEY" ]]; then return 1; fi
+                declare -g "${PRE}${KEY}=${VAL}"
+            ;;
+            --*)
+                KEY="${1#--}"
+                KEY="${KEY//-/_}"
+                KEY="${KEY//[^0-9a-zA-Z_]/}"
+                if [[ -z "$KEY" ]]; then return 1; fi
+                if [[ 1 -lt $# ]] && [[ "${2:0:1}" != "-" ]]; then
+                    shift
+                    declare -g "${PRE}${KEY}=$1"
+                else
+                    declare -g "${PRE}${KEY}=ON"
+                fi
+            ;;
+            -*)
+                KEY="${1#-}"
+                local KI
+                for ((KI=0; KI<${#KEY}; ++KI)); do
+                    declare -g "${PRE}${KEY:KI:1}=ON"
+                done
+            ;;
+            *)
+                POS=$((POS + 1))
+                declare -g "${PRE}${POS}=$1"
+            ;;
+        esac
+        shift
+    done
+    declare -g "${PRE}COUNT=$POS"
+}
+
 # Returns the OS name
 #   @ returns one of "cygwin", "darwin", "freebsd", "linux", "msys", "win32"
 osName()
@@ -1569,4 +1984,3 @@ replaceAllInFile()
         sed "s/${FND}/${RPL}/g" "$SRC" > "$TGT"
     fi
 }
-
