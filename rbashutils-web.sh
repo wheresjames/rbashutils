@@ -46,6 +46,10 @@ downloadTool()
     local TOOLDNL=$3
     local EXPECTED_SHA256=$4
 
+    if [[ ! "$TOOLNAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+        exitWithError "downloadTool: invalid tool name: $TOOLNAME"
+    fi
+
     local TOOLEXEC="${RBASHUTILS_TOOLPATH}/${TOOLNAME}"
 
     if [ -f "$TOOLEXEC" ]; then
@@ -88,6 +92,10 @@ downloadToolCompressed()
     local TOOLNAME=$1
     local TOOLGREP=$2
     local TOOLURL=$3
+
+    if [[ ! "$TOOLNAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+        exitWithError "downloadToolCompressed: invalid tool name: $TOOLNAME"
+    fi
 
     local TOOLEXEC="${RBASHUTILS_TOOLPATH}/${TOOLNAME}"
 
@@ -336,7 +344,7 @@ createSelfSignedCert()
         showInfo "Already have self signed cert for ${DOMAINNAME} in ${CERTDIR}"
     else
         showInfo "Creating self signed certificate..."
-        mkdir -p $CERTDIR
+        mkdir -p "$CERTDIR"
         openssl req -x509 -newkey $KEYSIZE -nodes \
                     -keyout "$CERTDIR/privkey.pem" \
                     -out "$CERTDIR/chain.pem" \
@@ -421,14 +429,19 @@ addCertbotRenewCronjob()
 {
     local WEBROOT=$1
 
+    if [[ -n "$WEBROOT" ]] && ! isSafePath "$WEBROOT"; then
+        exitWithError "addCertbotRenewCronjob: unsafe webroot path: $WEBROOT"
+    fi
+
     # Add renew job to cron
     if ! findIn "crontab -l" "certbot"; then
-        if [[ -z $WEBROOT ]]; then
-            local CERTRENEW="0 2 * * * /usr/bin/certbot renew >> /var/log/certrenew.log 2>&1"
+        local CERTRENEW
+        if [[ -z "$WEBROOT" ]]; then
+            CERTRENEW="0 2 * * * /usr/bin/certbot renew >> /var/log/certrenew.log 2>&1"
         else
-            local CERTRENEW="0 2 * * * /usr/bin/certbot renew --webroot -w $WEBROOT >> /var/log/certrenew.log 2>&1"
+            printf -v CERTRENEW '0 2 * * * /usr/bin/certbot renew --webroot -w %q >> /var/log/certrenew.log 2>&1' "$WEBROOT"
         fi
-        (crontab -l; echo "$CERTRENEW" ) | crontab -
+        (crontab -l; echo "$CERTRENEW") | crontab -
     fi
 }
 
@@ -617,7 +630,7 @@ installNginx()
             }\n
         }\n
     "
-    echo -e ${CFG_BASE_SITE} > /etc/nginx/conf.d/${DOMAINNAME}.conf
+    printf '%b' "$CFG_BASE_SITE" > "/etc/nginx/conf.d/${DOMAINNAME}.conf"
 
     nginx -t
     exitOnError "Error in nginx configuration"
@@ -670,7 +683,7 @@ installApache()
             CustomLog \${APACHE_LOG_DIR}/${DOMAINNAME}_access.log combined\n
         </VirtualHost>\n
     "
-    echo -e ${CFG_BASE_SITE} > /etc/apache2/sites-available/${DOMAINNAME}.conf
+    printf '%b' "$CFG_BASE_SITE" > "/etc/apache2/sites-available/${DOMAINNAME}.conf"
 
     a2enmod ssl
     warnOnError "Failed to enable apache ssl"

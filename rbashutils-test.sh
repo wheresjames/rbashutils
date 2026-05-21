@@ -2,8 +2,8 @@
 
 USAGE="Usage: ${BASH_SOURCE[0]} [test #]"
 
-SCRIPTFILE=$(realpath ${BASH_SOURCE[0]})
-SCRIPTPATH=$(dirname $SCRIPTFILE)
+SCRIPTFILE=$(realpath "${BASH_SOURCE[0]}")
+SCRIPTPATH=$(dirname "$SCRIPTFILE")
 . "${SCRIPTPATH}/rbashutils.sh"
 
 expandTestCommands()
@@ -45,8 +45,8 @@ onExit doCleanup
 
 doTest()
 {
-    if ! isCmd "$1" && [ ! -z $(getCmds) ]; then
-        return -1
+    if ! isCmd "$1" && [ -n "$(getCmds)" ]; then
+        return 1
     fi
     printf "\n--- $1 ---\n"
     RBTEST_SECTIONS=$((RBTEST_SECTIONS + 1))

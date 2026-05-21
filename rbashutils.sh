@@ -13,9 +13,9 @@ IS_RBASHUTILS="YES"
 
 # Root directory
 if [[ ! -z "${BASH_SOURCE[0]}" ]]; then
-    RBASHUTILS_SCRIPTPATH=$(realpath ${BASH_SOURCE[0]})
+    RBASHUTILS_SCRIPTPATH=$(realpath "${BASH_SOURCE[0]}")
     if [[ ! -z "$RBASHUTILS_SCRIPTPATH" ]]; then
-        RBASHUTILS_ROOTDIR=$(dirname $RBASHUTILS_SCRIPTPATH)
+        RBASHUTILS_ROOTDIR=$(dirname "$RBASHUTILS_SCRIPTPATH")
     else
         RBASHUTILS_ROOTDIR=.
     fi
@@ -38,7 +38,7 @@ RBASHUTILS_CLEANUP_TRAP_SET=
 # @returns Build string formated as "YY.MM.DD.hhmm"
 createBuildString()
 {
-    local T=(`bash -c "date +'%y %m %d %H %M'"`)
+    local T=($(date +'%y %m %d %H %M'))
 
     # Remove leading zeros
     for i in ${!T[@]}; do
@@ -381,9 +381,11 @@ rbashutilsRunCleanup()
 {
     local CMD
     local PTH
+    local _cmd_words
     for CMD in "${RBASHUTILS_CLEANUP_CMDS[@]}"; do
-        if [[ ! -z "$CMD" ]]; then
-            eval "$CMD"
+        if [[ -n "$CMD" ]]; then
+            IFS=' ' read -r -a _cmd_words <<< "$CMD"
+            "${_cmd_words[@]}"
         fi
     done
     for PTH in "${RBASHUTILS_CLEANUP_PATHS[@]}"; do
@@ -428,20 +430,20 @@ makeTempFile()
 # @param [in] int - Exit code
 doExit()
 {
-    if [ ! -z $RBASHUTILS_ONEXIT ]; then
-        $RBASHUTILS_ONEXIT $@
+    if [ -n "$RBASHUTILS_ONEXIT" ]; then
+        "$RBASHUTILS_ONEXIT" "$@"
     fi
     rbashutilsRunCleanup
 
     echo
-    exit $1
+    exit "$1"
 }
 
 # Show error and exit
 # @param [in...] string
 exitWithError()
 {
-    showError $@
+    showError "$@"
     doExit -1
 }
 
@@ -528,8 +530,8 @@ doIfSuccess()
 warnOnError()
 {
     if [[ 0 -eq $? ]]; then return 0; fi
-    showWarning $@
-    return -1
+    showWarning "$@"
+    return 1
 }
 
 rbashutilsStrictMode()
@@ -661,14 +663,9 @@ getCmds()
 #
 isCmd()
 {
-    # - separator
-    local FOUND=$(echo "\-$RBASHUTILS_COMMANDLIST-" | grep -o "\-${1}-")
-    if [[ ! -z $FOUND ]]; then return 0; fi
-
-    # , separator
-    local FOUND=$(echo ",$RBASHUTILS_COMMANDLIST," | grep -o ",${1},")
-    if [[ ! -z $FOUND ]]; then return 0; fi
-    return -1
+    echo "-${RBASHUTILS_COMMANDLIST}-" | grep -qF -- "-${1}-" && return 0
+    echo ",${RBASHUTILS_COMMANDLIST}," | grep -qF -- ",${1}," && return 0
+    return 1
 }
 
 # Deletes the specified command from *$COMMANDLIST*
@@ -676,7 +673,7 @@ isCmd()
 # @todo Have this clean up the separators
 delCmd()
 {
-    if isCmd $1; then
+    if isCmd "$1"; then
         RBASHUTILS_COMMANDLIST=${RBASHUTILS_COMMANDLIST/${1}/}
     fi
 }
@@ -705,16 +702,22 @@ toLower()
     fi
 }
 
-# Searches the specified string for a sub string
+# Searches the specified string for a pattern (extended regex)
 # @param [in] string - String to search
-# @param [in] string - Sub string to look for
-# @returns 0 if sub string is found
+# @param [in] string - ERE pattern to look for
+# @returns 0 if pattern is found
 findInStr()
 {
-    local FIND_LIST="$1"
-    local FIND_EXISTS=$(echo "$FIND_LIST" | grep -E -o "$2")
-    if [[ ! -z $FIND_EXISTS ]]; then return 0; fi
-    return -1
+    echo "$1" | grep -qE -- "$2"
+}
+
+# Searches the specified string for a literal sub string (no regex)
+# @param [in] string - String to search
+# @param [in] string - Literal sub string to look for
+# @returns 0 if sub string is found
+containsStr()
+{
+    echo "$1" | grep -qF -- "$2"
 }
 
 # Executes a command and searches for a sub string in the output
@@ -770,14 +773,13 @@ filterLines()
 # @returns 0 if valid command
 isCommand()
 {
-    if ! findIn "which $1" "$1"; then return -1; fi
-    return 0
+    command -v "$1" >/dev/null 2>&1
 }
 
 # Checks if the specified package is installed
 isAptPkgInstalled()
 {
-    if findIn "dpkg --get-selections" $1; then return 0; else return -1; fi
+    if findIn "dpkg --get-selections" "$1"; then return 0; else return 1; fi
 }
 
 # Checks that the specified pacakge(s) is installed, installs if not
@@ -929,7 +931,7 @@ waitWhile()
         # Retries?
         WAITRETRY=$((WAITRETRY-1))
         if [ $WAITRETRY -le 0 ]; then
-            return -1
+            return 1
         fi
 
         printf .
@@ -965,7 +967,7 @@ waitUntil()
         # Retries?
         WAITRETRY=$((WAITRETRY-1))
         if [ $WAITRETRY -le 0 ]; then
-            return -1
+            return 1
         fi
 
         printf .
@@ -987,7 +989,7 @@ askYesNo()
         read -p "$* [y/n]: " yn
         case $yn in
             [Yy]*) return 0  ;;
-            [Nn]*) return -1 ;;
+            [Nn]*) return 1 ;;
             *) yn=
         esac
     done
@@ -999,7 +1001,7 @@ askYesNo()
 #   isOnline "http://google.com"
 isOnline()
 {
-    wget -q --tries=1 --timeout=8 --spider $1
+    wget -q --tries=1 --timeout=8 --spider "$1"
     return $?
 }
 
@@ -1154,7 +1156,7 @@ trimWs() {
     local var="$*"
     var="${var#"${var%%[![:space:]]*}"}"
     var="${var%"${var##*[![:space:]]}"}"
-    echo $var
+    echo "$var"
 }
 
 # Adds lines to the file if missing
@@ -1164,12 +1166,13 @@ addLinesToFile()
 {
     local FILENAME=$1
     local ADDLINES=$2
+    local FILEDATA
 
     FILEDATA=$(cat "$FILENAME")
     while IFS= read -r L; do
-        L=$(trimWs $L)
-        if [[ ! -z "$L" ]]; then
-            if ! findInStr "$FILEDATA" "$L"; then
+        L=$(trimWs "$L")
+        if [[ -n "$L" ]]; then
+            if ! containsStr "$FILEDATA" "$L"; then
                 showInfo "[+] Adding \"$L\" to \"$FILENAME\""
                 appendLineOnce "$FILENAME" "$L"
             fi
@@ -1184,12 +1187,13 @@ delLinesFromFile()
 {
     local FILENAME=$1
     local DELLINES=$2
+    local FILEDATA
 
     FILEDATA=$(cat "$FILENAME")
     while IFS= read -r L; do
-        L=$(trimWs $L)
-        if [[ ! -z "$L" ]]; then
-            if findInStr "$FILEDATA" "$L"; then
+        L=$(trimWs "$L")
+        if [[ -n "$L" ]]; then
+            if containsStr "$FILEDATA" "$L"; then
                 showInfo "[-] Deleting \"$L\" from \"$FILENAME\""
                 local TMPFILE
                 TMPFILE=$(mktemp "$(dirname "$FILENAME")/.tmp.$(basename "$FILENAME").XXXXXX") || return 1
@@ -1208,12 +1212,12 @@ delLinesFromFile()
 findFile()
 {
     local SEARCHROOT=$1
-    if [ ! -d $SEARCHROOT ]; then
+    if [ ! -d "$SEARCHROOT" ]; then
         exitWithError "findFile search path not specified or valid"
     fi
 
     local FINDTMPL=$2
-    if [ -z $FINDTMPL ]; then
+    if [ -z "$FINDTMPL" ]; then
         exitWithError "findFile template not specified"
     fi
 
@@ -1296,26 +1300,37 @@ getPassword()
     local CHARSET=$4
     local NEWPASSWORD=$5
 
-    if [[ -z $PWDLEN ]]; then return -1; fi
+    if [[ -z $PWDLEN ]]; then return 1; fi
     if [[ -z $CHARSET ]]; then CHARSET="A-Za-z0-9"; fi
 
     local PASSWORD=
     local PWDFILE=
-    if [[ ! -z "$PWDNAME" ]]; then
-        PWDPATH=$(getSecretsPath "passwords" $3)
+    if [[ -n "$PWDNAME" ]]; then
+        PWDPATH=$(getSecretsPath "passwords" "$3")
         PWDFILE="${PWDPATH}/$PWDNAME.pwd"
-        if [[ ! -z $NEWPASSWORD ]]; then
-            rm "$PWDFILE"
-        elif [[ -f $PWDFILE ]]; then
-            PASSWORD=$(<${PWDFILE})
+        if [[ -n "$NEWPASSWORD" ]]; then
+            PASSWORD=  # force regeneration; overwrite file below
+        elif [[ -f "$PWDFILE" ]]; then
+            PASSWORD=$(<"$PWDFILE")
         fi
     fi
 
-    if [[ -z $PASSWORD ]]; then
-        PASSWORD=$(head /dev/urandom | tr -dc "$CHARSET" | head -c ${PWDLEN})
-        if [[ ! -z $PWDFILE ]]; then
-            echo "${PASSWORD}" > "${PWDFILE}"
-            chmod 600 "${PWDFILE}"
+    if [[ -z "$PASSWORD" ]]; then
+        local _acc=
+        local _MAX_ROUNDS=50
+        local _rounds=0
+        while [[ ${#_acc} -lt $PWDLEN ]]; do
+            _acc+=$(dd if=/dev/urandom bs=256 count=1 2>/dev/null | tr -dc "$CHARSET")
+            _rounds=$((_rounds + 1))
+            if [[ $_rounds -ge $_MAX_ROUNDS ]]; then
+                showError "getPassword: insufficient entropy for charset '$CHARSET' after $_MAX_ROUNDS rounds"
+                return 1
+            fi
+        done
+        PASSWORD="${_acc:0:$PWDLEN}"
+        if [[ -n "$PWDFILE" ]]; then
+            (umask 177; : > "${PWDFILE}") || return 1
+            printf '%s' "$PASSWORD" > "${PWDFILE}"
         fi
     fi
 
@@ -1333,8 +1348,7 @@ getWifi()
 lastModified()
 {
     local FILES="$1/*"
-
-    TS=0
+    local TS=0
     for SRC in $FILES
     do
         if [[ -d "$SRC" ]]; then
@@ -1411,7 +1425,7 @@ compareVersion()
     local MAX=${#V1[@]}
     if [[ $MAX -lt ${#V2[@]} ]]; then MAX=${#V2[@]}; fi
 
-    RES=
+    local RES=
     while [[ -z $RES ]] && [[ $IDX -lt $MAX ]]; do
 
         local NEXT=$(($IDX + 1))
@@ -1522,7 +1536,7 @@ iterateFiles()
     local CNT=$4
 
     if [ ! -d "$DIR" ]; then
-        return -1
+        return 1
     fi
 
     if [ -z "$TOT" ]; then
@@ -1573,17 +1587,19 @@ isCertValid()
     fi
     local SECS=$(($DAYS * 24 * 60 * 60))
 
-    CERTRAW=$(openssl s_client -connect ${DOMAIN}:443 -servername ${DOMAIN} 2>/dev/null </dev/null)
+    local CERTRAW
+    CERTRAW=$(openssl s_client -connect "${DOMAIN}:443" -servername "${DOMAIN}" 2>/dev/null </dev/null)
     if [ -z "$CERTRAW" ]; then
-        return -1;
+        return 1;
     fi
 
-    CERTTXT=$(echo "${CERTRAW}" | openssl x509 -in /dev/stdin -noout -checkend $SECS)
-    if findInStr "$CERTTXT" "Certificate will not expire"; then
+    local CERTTXT
+    CERTTXT=$(echo "${CERTRAW}" | openssl x509 -in /dev/stdin -noout -checkend "$SECS")
+    if containsStr "$CERTTXT" "Certificate will not expire"; then
         return 0;
     fi
 
-    return -1;
+    return 1;
 }
 
 
@@ -1598,15 +1614,17 @@ getCertTime()
     local FORMAT=$3
     local RET=
 
-    local CERTRAW=$(openssl s_client -connect ${DOMAIN}:443 -servername ${DOMAIN} 2>/dev/null </dev/null)
+    local CERTRAW
+    CERTRAW=$(openssl s_client -connect "${DOMAIN}:443" -servername "${DOMAIN}" 2>/dev/null </dev/null)
     if [ -z "$CERTRAW" ]; then
-        return -1;
+        return 1;
     fi
 
     # Start time
-    if findInStr "$WHICH" "start"; then
-        local CERTTXT=$(echo "${CERTRAW}" | openssl x509 -in /dev/stdin -noout -startdate)
-        if findInStr "$CERTTXT" "notBefore="; then
+    if containsStr "$WHICH" "start"; then
+        local CERTTXT
+        CERTTXT=$(echo "${CERTRAW}" | openssl x509 -in /dev/stdin -noout -startdate)
+        if containsStr "$CERTTXT" "notBefore="; then
             if [[ "timestamp" == "$FORMAT" ]]; then
                 RET="$(date --date="${CERTTXT:10}" +"%s")"
             else
@@ -1616,9 +1634,10 @@ getCertTime()
     fi
 
     # End time
-    if findInStr "$WHICH" "end"; then
-        local CERTTXT=$(echo "${CERTRAW}" | openssl x509 -in /dev/stdin -noout -enddate)
-        if findInStr "$CERTTXT" "notAfter="; then
+    if containsStr "$WHICH" "end"; then
+        local CERTTXT
+        CERTTXT=$(echo "${CERTRAW}" | openssl x509 -in /dev/stdin -noout -enddate)
+        if containsStr "$CERTTXT" "notAfter="; then
             if [ ! -z "$RET" ]; then
                 RET="$RET : "
             fi
@@ -1964,23 +1983,29 @@ replaceAllInFile()
 
     if [ ! -f "$SRC" ]; then
         showError "File not found : $SRC"
-        return
+        return 1
     fi
 
-    #Escape strings
-    FND=${FND//\\/\\\\}
-    FND=${FND//\//\\\/}
-    RPL=${RPL//\\/\\\\}
-    RPL=${RPL//\//\\\/}
+    local TMPFILE
+    TMPFILE=$(mktemp "$(dirname "$SRC")/.tmp.$(basename "$SRC").XXXXXX") || return 1
 
-    # Inplace?
+    # Use ENVIRON to pass strings so awk never interprets backslash escapes.
+    # index() does literal (non-regex) matching, so no special characters need escaping.
+    AWK_FIND="$FND" AWK_REPL="$RPL" awk '
+    BEGIN { f = ENVIRON["AWK_FIND"]; r = ENVIRON["AWK_REPL"] }
+    {
+        out = ""
+        s = $0
+        while ((i = index(s, f)) > 0) {
+            out = out substr(s, 1, i - 1) r
+            s = substr(s, i + length(f))
+        }
+        print out s
+    }' "$SRC" > "$TMPFILE" || { rm -f "$TMPFILE"; return 1; }
+
     if [ -z "$TGT" ]; then
-        if [[ $(osName) == "darwin"* ]]; then
-            sed -i '' "s/${FND}/${RPL}/g" "$SRC"
-        else
-            sed -i "s/${FND}/${RPL}/g" "$SRC"
-        fi
+        mv "$TMPFILE" "$SRC"
     else
-        sed "s/${FND}/${RPL}/g" "$SRC" > "$TGT"
+        mv "$TMPFILE" "$TGT"
     fi
 }

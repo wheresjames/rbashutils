@@ -181,11 +181,20 @@ ERRORS=$(filterLines "$OUTPUT" "^ERROR:" 10)
 ```
 
 #### `findInStr <string> <pattern>`
-Searches `string` for `pattern` using `grep -E`. Returns 0 if found.
+Searches `string` for extended-regex `pattern` using `grep -E`. Returns 0 if found. Use this when the pattern is intentionally a regex.
 
 ```bash
 if findInStr "$LOG_OUTPUT" "Connection refused"; then
     showError "Service is not responding"
+fi
+```
+
+#### `containsStr <string> <literal>`
+Searches `string` for a literal sub-string (no regex — every character is matched exactly). Returns 0 if found. Prefer this over `findInStr` when the search term is plain text that may contain regex metacharacters.
+
+```bash
+if containsStr "$FILE_CONTENTS" "api.example.com"; then
+    showWarning "Hardcoded hostname found"
 fi
 ```
 
@@ -347,12 +356,23 @@ doExit 0
 ```
 
 #### `makeTempDir` / `makeTempFile` / `cleanupOnExit` / `cleanupPathOnExit` / `cleanupNow`
-Creates temporary paths and registers cleanup actions. Pass a variable name to `makeTempDir` or `makeTempFile` to set that variable and automatically remove the generated path when cleanup runs. With no variable name, the path is printed but not auto-registered, because command substitution runs in a subshell. `cleanupOnExit` accepts a shell command string for custom cleanup.
+Creates temporary paths and registers cleanup actions. Pass a variable name to `makeTempDir` or `makeTempFile` to set that variable and automatically remove the generated path when cleanup runs. With no variable name, the path is printed but not auto-registered, because command substitution runs in a subshell. `cleanupOnExit` accepts a simple command (function name or command with arguments). Full shell syntax (pipes, redirections, semicolons) is not supported — wrap complex cleanup logic in a shell function instead.
 
 ```bash
 makeTempDir WORKDIR
 makeTempFile LOCKFILE
-cleanupOnExit "echo cleanup complete"
+
+# Simple: function name or command + args
+cleanupOnExit my_cleanup_fn
+cleanupOnExit rm -f /tmp/my.lock
+
+# Complex cleanup: wrap in a function
+my_cleanup() {
+    rm -f /tmp/my.lock
+    echo "done" >> /var/log/app.log
+}
+cleanupOnExit my_cleanup
+
 cleanupNow
 ```
 
@@ -523,14 +543,15 @@ delLinesFromFile "$HOME/.bashrc" "source /opt/myapp/env.sh"
 ```
 
 #### `replaceAllInFile <find> <replace> <src> [dest]`
-Replaces all occurrences of `find` with `replace` in `src`. If `dest` is omitted, edits in place. Handles `/` and `\` in the search and replace strings.
+Replaces all occurrences of `find` with `replace` in `src`. If `dest` is omitted, edits in place. Uses literal (non-regex) matching via `awk index()`, so any character — including `.`, `*`, `[`, `&`, `/`, `\` — is matched and substituted exactly as written, with no escaping required.
 
 ```bash
 # Replace a version placeholder in a template, writing to a new file
 replaceAllInFile "%%VERSION%%" "$VERSION" "config.template" "config.ini"
 
-# In-place replacement
-replaceAllInFile "localhost" "$DB_HOST" "/etc/myapp/db.conf"
+# In-place replacement — special characters need no escaping
+replaceAllInFile "api.example.com" "$API_HOST" "/etc/myapp/db.conf"
+replaceAllInFile "C:\old\path" "C:\new\path" "setup.ini"
 ```
 
 #### `writeFileAtomic` / `appendLineOnce` / `replaceLineAtomic`
@@ -741,11 +762,15 @@ gitCheckoutOrUpdate "vendor" "mylib" \
     "https://github.com/org/mylib.git" "main"
 ```
 
-#### `installCMake [version]`
-Downloads the CMake source tarball, verifies its SHA-256 checksum, then builds and installs it. Defaults to version `3.19.7`.
+#### `installCMake [version] [sha256]`
+Downloads the CMake source tarball, verifies its SHA-256 checksum, then builds and installs it. Defaults to version `3.19.7`. If `sha256` is supplied, the tarball is verified against that known-good hash (stronger integrity guarantee). Without it, the hash is downloaded from the same server as the tarball and a warning is printed.
 
 ```bash
-installCMake 3.27.0
+# Default version, hash downloaded from server (with warning)
+installCMake
+
+# Specific version with a trusted, hardcoded hash
+installCMake 3.27.0 "abc123..."
 ```
 
 ---

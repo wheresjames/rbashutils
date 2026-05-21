@@ -58,12 +58,15 @@ gitCheckoutOrUpdate()
 
 installCMake()
 {
-    CMAKEVER=$1
-    if [ -z $CMAKEVER ]; then
+    local CMAKEVER=$1
+    local EXPECTED_SHA256=$2
+
+    if [ -z "$CMAKEVER" ]; then
         CMAKEVER=3.19.7
     fi
 
-    ORGDIR=$PWD
+    local ORGDIR=$PWD
+    local OUTDIR
     OUTDIR=$(mktemp -d)
     if [ -z "$OUTDIR" ] || [ ! -d "$OUTDIR" ]; then
         exitWithError "Failed to create temporary directory"
@@ -75,14 +78,26 @@ installCMake()
     showInfo "Installing CMake version : $CMAKEVER"
 
     wget "https://github.com/Kitware/CMake/releases/download/v${CMAKEVER}/cmake-${CMAKEVER}.tar.gz"
-    wget "https://github.com/Kitware/CMake/releases/download/v${CMAKEVER}/cmake-${CMAKEVER}-SHA-256.txt"
-    grep "cmake-${CMAKEVER}.tar.gz" "cmake-${CMAKEVER}-SHA-256.txt" | sha256sum --check -
-    exitOnError "SHA256 verification failed for cmake-${CMAKEVER}.tar.gz"
-    tar xvzf ./cmake-${CMAKEVER}.tar.gz
-    cd cmake-${CMAKEVER}
+    exitOnError "Failed to download cmake-${CMAKEVER}.tar.gz"
+
+    if [[ -n "$EXPECTED_SHA256" ]]; then
+        echo "${EXPECTED_SHA256}  cmake-${CMAKEVER}.tar.gz" | sha256sum --check -
+        exitOnError "SHA256 verification failed for cmake-${CMAKEVER}.tar.gz"
+    else
+        showWarning "No expected SHA256 provided; downloading hash from the same server (reduced trust). Pass the known SHA256 as the second argument to installCMake for a stronger integrity check."
+        wget "https://github.com/Kitware/CMake/releases/download/v${CMAKEVER}/cmake-${CMAKEVER}-SHA-256.txt"
+        exitOnError "Failed to download SHA256 file"
+        grep "cmake-${CMAKEVER}.tar.gz" "cmake-${CMAKEVER}-SHA-256.txt" | sha256sum --check -
+        exitOnError "SHA256 verification failed for cmake-${CMAKEVER}.tar.gz"
+    fi
+
+    tar xvzf "./cmake-${CMAKEVER}.tar.gz"
+    exitOnError "Failed to extract cmake-${CMAKEVER}.tar.gz"
+    cd "cmake-${CMAKEVER}"
 
     showInfo "Bootstrapping CMake..."
     ./bootstrap
+    exitOnError "CMake bootstrap failed"
 
     showInfo "Building CMake..."
     make
@@ -94,5 +109,4 @@ installCMake()
 
     cd "$ORGDIR"
     rm -Rf "$OUTDIR"
-
 }

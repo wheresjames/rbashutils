@@ -24,9 +24,10 @@ setDomain()
             systemctl restart systemd-hostnamed
         fi
 
-        # Update hosts file
-        sed -i "s/127.0.0.1.*$DOMAINNAME.*//g" /etc/hosts
-        sed -i "s/127.0.0.1.*localhost.*/127.0.0.1    $DOMAINNAME\n127.0.0.1    localhost/g" /etc/hosts
+        # Update hosts file — escape dots so they are literal in the sed pattern
+        local SAFE_DOMAIN="${DOMAINNAME//./\\.}"
+        sed -i "s/127\.0\.0\.1.*${SAFE_DOMAIN}.*//g" /etc/hosts
+        sed -i "s/127\.0\.0\.1.*localhost.*/127.0.0.1    ${DOMAINNAME}\n127.0.0.1    localhost/g" /etc/hosts
 
     fi
 }
